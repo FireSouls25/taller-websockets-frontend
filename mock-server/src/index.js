@@ -233,10 +233,11 @@ function atenderConsola(ws, url) {
         return ws.send(JSON.stringify({ t: "error", codigo: msg.acta ? "DATOS_INVALIDOS" : "COLA_VACIA" }));
       }
       if (casosVerif.has(item.acta)) return ws.send(JSON.stringify({ t: "error", codigo: "NO_DISPONIBLE" }));
+      const detalle = detalleDe(item.acta);
       colaVerif.splice(colaVerif.indexOf(item), 1);
       casosVerif.set(item.acta, { auditor, desde: Date.now() });
       revConsola += 1;
-      ws.send(JSON.stringify({ t: "tomado", acta: item.acta, desde: Date.now(), detalle: detalleDe(item.acta) }));
+      ws.send(JSON.stringify({ t: "tomado", acta: item.acta, desde: Date.now(), detalle }));
       emitirConsola({ t: "evento", rev: revConsola, tipo: "tomado", acta: item.acta, auditor });
       return emitirPresencia();
     }
