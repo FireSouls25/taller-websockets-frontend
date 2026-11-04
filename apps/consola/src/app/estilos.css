@@ -1,0 +1,60 @@
+/* Consola · mismos tokens del producto; escritorio primero, teléfono apilado. */
+:root {
+  --ground: #f4f3f1;
+  --surface: #ffffff;
+  --border: #e6e6e6;
+  --rule: #eceae6;
+  --control: #d4d4d4;
+  --text: #0a0a0a;
+  --muted: #5f6368;
+  --faint: #6b6b6b;
+  --primary: #141414;
+  --pill-positive-bg: #dcfae5; --pill-positive-ink: #04250e;
+  --pill-warning-bg: #fffbeb; --pill-warning-ink: #92400e;
+  --pill-neutral-bg: #e9e7e2; --pill-neutral-ink: #3d3d3d;
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --font: "Geist", Inter, system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 20px; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.col { max-width: 1152px; margin: 0 auto; padding: 0 24px 64px; }
+.topbar { display: flex; align-items: center; gap: 10px; min-height: 48px; max-width: 1152px; margin: 0 auto; padding: 0 24px; }
+.topbar strong { font-size: 15px; }
+.topbar .quien { color: var(--muted); }
+.topbar button { margin-left: auto; }
+h1 { font-size: 24px; margin: 24px 0 4px; }
+.sub { color: var(--muted); margin: 0 0 16px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 20px; margin-top: 16px; }
+.card h2 { font-size: 16px; margin: 0 0 8px; }
+label.campo { display: block; font-weight: 500; margin: 12px 0 4px; }
+input, select { width: 100%; min-height: 36px; border: 1px solid var(--control); border-radius: var(--radius-control); background: #fff; color: var(--text); font: inherit; padding: 0 10px; }
+.rejilla { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+button.primario { min-height: 36px; margin-top: 16px; border: none; border-radius: var(--radius-control); background: var(--primary); color: #fff; font: inherit; padding: 0 16px; cursor: pointer; }
+button.primario:disabled { opacity: 0.45; cursor: not-allowed; }
+button.secundario { min-height: 36px; border: 1px solid var(--control); border-radius: var(--radius-control); background: #fff; font: inherit; padding: 0 12px; cursor: pointer; }
+button.texto { background: none; border: none; text-decoration: underline; padding: 0; font: inherit; cursor: pointer; }
+.botones { display: flex; gap: 8px; align-items: center; }
+.botones .primario { flex: 1; }
+.alerta { background: var(--pill-warning-bg); border: 1px solid #fde68a; color: var(--pill-warning-ink); border-radius: var(--radius-control); padding: 8px 12px; font-size: 12px; margin: 12px 0 0; }
+.aviso { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-control); padding: 8px 12px; margin: 12px 0 0; }
+.pill { display: inline-block; height: 20px; line-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.pill.live { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+.pill.neutral { background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
+.pill.warn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+.fila { border-top: 1px solid var(--rule); padding: 10px 0; display: flex; gap: 10px; align-items: flex-start; }
+.datos { min-width: 0; }
+.acta-id { font-size: 13px; }
+.detalle { color: var(--muted); font-size: 12px; }
+.accion { margin-left: auto; flex: none; }
+.meta { color: var(--muted); font-size: 12px; }
+.kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 12px; margin: 12px 0; }
+.kv dt { color: var(--muted); font-size: 12px; }
+.kv dd { margin: 0; text-align: right; }
+@media (max-width: 800px) {
+  .col, .topbar { padding-left: 16px; padding-right: 16px; }
+  .grid { grid-template-columns: 1fr; }
+}
