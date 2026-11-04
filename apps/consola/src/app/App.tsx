@@ -1,108 +1,160 @@
 import { useEffect, useRef, useState, type JSX } from "react";
-import { cumpleReglaContable, obtenerInstancia } from "@preconteo/shared";
-import { cerrarSesion, iniciarSesion, leerSesion, type SesionConsola } from "../domains/auth/sesion.js";
-import { ConexionConsola, type EstadoConsola } from "../domains/verificacion/conexion-consola.js";
+import {
+  httpGet,
+  fetchInstance,
+  satisfiesTallyRule,
+  type LostCaseReason,
+  type MyCase,
+} from "@preconteo/shared";
+import { readSession, signIn, signOut, type ConsoleSession } from "../domains/auth/session.js";
+import { ConsoleLink, type ConsoleView } from "../domains/verification/console-link.js";
+import { es, resolvedText } from "../i18n/es.js";
 
-const CANDIDATOS = ["C1", "C2", "C3", "BLANCO", "NULO", "NO_MARCADO"];
+const CANDIDATES = ["C1", "C2", "C3", "BLANCO", "NULO", "NO_MARCADO"];
 
-function hace(ms: number): string {
+function ago(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s} s`;
   return `${Math.floor(s / 60)} min ${s % 60} s`;
 }
 
+function lostReasonText(reason: LostCaseReason): string {
+  if (reason === "idle") return es.board.lostIdle;
+  if (reason === "expired") return es.board.lostExpired;
+  return es.board.lostNewVersion;
+}
+
+const idleState = (): ConsoleView => ({
+  connected: false,
+  degraded: false,
+  rev: "0-0",
+  queue: [],
+  cases: [],
+  myCase: null,
+  presence: [],
+  notice: null,
+  idleWarning: false,
+});
+
 export function App(): JSX.Element {
-  const [sesion, setSesion] = useState<SesionConsola | null>(() => leerSesion());
-  const [st, setSt] = useState<EstadoConsola | null>(null);
-  const [instancia, setInstancia] = useState("…");
-  const con = useRef<ConexionConsola | null>(null);
+  const [session, setSession] = useState<ConsoleSession | null>(() => readSession());
+  const [st, setSt] = useState<ConsoleView>(idleState);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [instance, setInstance] = useState("…");
+  const link = useRef<ConsoleLink | null>(null);
 
   useEffect(() => {
-    void obtenerInstancia().then(setInstancia);
+    void fetchInstance().then(setInstance);
   }, []);
 
   useEffect(() => {
-    if (!sesion) return;
-    const c = new ConexionConsola(sesion.token, { onEstado: setSt });
-    con.current = c;
-    c.arrancar();
+    if (!session) return;
+    const c = new ConsoleLink(session.token, {
+      onState: (s) => {
+        setSt(s);
+        if (!s.connected) setNotice(es.board.offline);
+        else if (s.idleWarning) setNotice(es.board.idle);
+        else setNotice(null);
+      },
+      onResolved: (record, outcome) => setNotice(resolvedText(record, outcome)),
+      onRaceLost: () => setNotice(es.board.raceLost),
+      onErrorCode: (code) => setNotice(`Error: ${code}`),
+      onCaseLost: (record, reason) =>
+        setNotice(es.board.caseLost(record, lostReasonText(reason))),
+    });
+    link.current = c;
+    c.start();
     return () => {
-      c.detener();
-      con.current = null;
+      c.stop();
+      link.current = null;
     };
-  }, [sesion]);
+  }, [session]);
 
-  if (!sesion) return <Acceso onEntrar={setSesion} />;
+  if (!session) return <SignIn onEnter={setSession} />;
 
   return (
     <>
       <header className="topbar">
-        <strong>Verificación</strong>
-        <span className="quien mono">{sesion.usuario}</span>
-        <span className={`pill ${st?.conectada ? "live" : "neutral"}`}>{st?.conectada ? "en vivo" : "reconectando…"}</span>
-        <span className="meta mono">instancia {instancia}</span>
-        <button className="texto" type="button" onClick={() => { con.current?.detener(); cerrarSesion(); setSesion(null); }}>
-          Salir
+        <strong>{es.brand}</strong>
+        <span className="who mono">{session.user}</span>
+        <span className={`pill ${st.connected ? "live" : "neutral"}`}>
+          {st.connected ? es.header.live : es.header.reconnecting}
+        </span>
+        <span className="meta mono">instancia {instance}</span>
+        <button className="textlike" type="button" onClick={() => { link.current?.stop(); signOut(); setSession(null); }}>
+          {es.header.signOut}
         </button>
       </header>
       <main className="col">
-        <h1>Cola de verificación</h1>
+        <h1>{es.board.title}</h1>
         <p className="sub">
-          {st ? `${st.cola.length} en cola · rev ${st.rev}` : "Conectando…"} · un acta, un auditor.
+          {st.connected ? es.board.sub(st.queue.length, st.rev) : es.board.connecting} · {es.board.rule}
         </p>
-        {st?.degradado && <p className="alerta" role="alert">Sistema degradado: trabaja con calma, los cambios pueden tardar.</p>}
-        {st?.aviso && <p className="aviso" role="status">{st.aviso}</p>}
-        {st?.avisoInactividad && <p className="alerta" role="alert">Inactivo: tu caso vuelve a la cola en menos de un minuto.</p>}
+        {st.degraded && <p className="alert" role="alert">{es.board.degraded}</p>}
+        {notice && <p className="notice" role="status">{notice}</p>}
         <div className="grid">
-          <section className="card" aria-label="Cola">
-            <h2>Cola ({st?.cola.length ?? 0})</h2>
-            {(st?.cola.length ?? 0) === 0 && <p className="meta">Cola vacía. Todo revisado.</p>}
-            {st?.cola.map((c) => {
-              const tomadoPor = st.casos.find((k) => k.acta === c.acta);
+          <section className="card" aria-label={es.board.queueTitle(st.queue.length)}>
+            <h2>{es.board.queueTitle(st.queue.length)}</h2>
+            {st.queue.length === 0 && <p className="meta">{es.board.queueEmpty}</p>}
+            {st.queue.map((item) => {
+              const holder = st.cases.find((k) => k.record === item.code);
               return (
-                <div className="fila" key={`${c.acta}-v${c.version}`}>
-                  <span className="datos">
-                    <span className="acta-id mono">{c.acta} · v{c.version}</span>
+                <div className="row" key={`${item.code}-v${item.version}`}>
+                  <span className="row-data">
+                    <span className="record-id mono">{item.code} · v{item.version}</span>
                     <br />
-                    <span className="detalle">{c.motivo} · mesa {c.mesa} · puesto {c.puesto} · mun {c.municipio}</span>
+                    <span className="row-detail">
+                      {item.reason} · mesa {item.table} · puesto {item.station} · mun {item.municipality}
+                    </span>
                     <br />
-                    {tomadoPor ? (
-                      <span className="pill neutral">en {tomadoPor.auditor}</span>
+                    {holder ? (
+                      <span className="pill neutral">{es.board.takenBy(holder.auditor)}</span>
                     ) : (
-                      <span className="pill live">libre</span>
+                      <span className="pill live">{es.board.free}</span>
                     )}
                   </span>
-                  <span className="accion">
-                    {!tomadoPor && (
-                      <button className="secundario" type="button" onClick={() => con.current?.tomar(c.acta)}>
-                        Tomar
+                  <span className="row-action">
+                    {!holder && !session.isCoordinator && (
+                      <button className="btn-secondary" type="button" onClick={() => link.current?.take(item.code)}>
+                        {es.board.take}
                       </button>
                     )}
                   </span>
                 </div>
               );
             })}
-            <button className="primario" type="button" onClick={() => con.current?.tomar()}>
-              Tomar la más urgente
-            </button>
+            {!session.isCoordinator && (
+              <button className="btn-primary" type="button" onClick={() => link.current?.take()}>
+                {es.board.takeUrgent}
+              </button>
+            )}
           </section>
-          <section className="card" aria-label="Mi caso">
-            <h2>Mi caso</h2>
-            {!st?.miCaso && <p className="meta">Sin caso. Toma uno de la cola.</p>}
-            {st?.miCaso && <Caso con={con.current} acta={st.miCaso.acta} detalle={st.miCaso.detalle} />}
+          <section className="card" aria-label={es.board.myCase}>
+            <h2>{es.board.myCase}</h2>
+            {!st.myCase && <p className="meta">{es.board.noCase}</p>}
+            {st.myCase && (
+              <CaseView link={link.current} token={session.token} current={st.myCase} />
+            )}
           </section>
         </div>
-        {sesion.esCoord && (
-          <section className="card" aria-label="Presencia">
-            <h2>Presencia ({st?.presencia.length ?? 0})</h2>
-            {(st?.presencia.length ?? 0) === 0 && <p className="meta">Nadie conectado.</p>}
-            {st?.presencia.map((p) => (
-              <div className="fila" key={p.auditor}>
-                <span className="datos">
-                  <span className="mono">{p.auditor}</span> <span className="detalle">{p.info}</span>
+        {session.isCoordinator && (
+          <section className="card" aria-label={es.presence.title(st.presence.length)}>
+            <h2>{es.presence.title(st.presence.length)}</h2>
+            {st.presence.length === 0 && <p className="meta">{es.presence.empty}</p>}
+            {st.presence.map((p) => (
+              <div className="row" key={p.auditor}>
+                <span className="row-data">
+                  <span className="mono">{p.auditor}</span>{" "}
+                  <span className="row-detail">{p.info.role} · {p.info.instance}</span>
                   <br />
-                  <span className="detalle">
-                    {p.acta ? `en ${p.acta} desde hace ${p.desde ? hace(Date.now() - p.desde) : "…"}` : "sin caso"}
+                  <span className="row-detail">
+                    {p.record
+                      ? es.presence.working(p.record, p.since ? ago(Date.now() - p.since) : "…")
+                      : es.presence.noCase}
+                    {" · "}
+                    {es.presence.connected(ago(Date.now() - p.info.connectedSince))}
+                    {" · "}
+                    {es.presence.lastActivity(ago(Date.now() - p.info.lastActivity))}
                   </span>
                 </span>
               </div>
@@ -114,84 +166,113 @@ export function App(): JSX.Element {
   );
 }
 
-function Caso({ con, acta, detalle }: { con: ConexionConsola | null; acta: string; detalle: { motivo: string; votos: Record<string, number>; sufragantes: number; version: number } }): JSX.Element {
+function CaseView({ link, token, current }: { link: ConsoleLink | null; token: string; current: MyCase }): JSX.Element {
   const [decision, setDecision] = useState<"APROBAR" | "RECHAZAR" | "CORREGIR">("APROBAR");
-  const [votos, setVotos] = useState<Record<string, string>>(() =>
-    Object.fromEntries(CANDIDATOS.map((c) => [c, String(detalle.votos[c] ?? "")])),
+  const [votes, setVotes] = useState<Record<string, string>>(() =>
+    Object.fromEntries(CANDIDATES.map((c) => [c, String(current.detail.votes[c] ?? "")])),
   );
-  const [suf, setSuf] = useState(String(detalle.sufragantes));
-  const nums: Record<string, number> = Object.fromEntries(CANDIDATOS.map((c) => [c, Number(votos[c] || 0)]));
-  const cuadra = cumpleReglaContable(nums, Number(suf || 0));
+  const [voters, setVoters] = useState(String(current.detail.voters));
+  const [history, setHistory] = useState<
+    { state: "loading" } | { state: "error" } | { state: "ready"; events: Array<{ tipo: string; version: number }> }
+  >({ state: "loading" });
+  const nums: Record<string, number> = Object.fromEntries(CANDIDATES.map((c) => [c, Number(votes[c] || 0)]));
+  const balanced = satisfiesTallyRule(nums, Number(voters || 0));
+
+  useEffect(() => {
+    setHistory({ state: "loading" });
+    void httpGet<{ acta: string; eventos: Array<{ tipo: string; version: number }> }>(
+      `/api/actas/${encodeURIComponent(current.record)}/historial`,
+      { token },
+    )
+      .then((r) => {
+        if (!("notModified" in r)) setHistory({ state: "ready", events: r.data.eventos });
+      })
+      .catch(() => setHistory({ state: "error" }));
+  }, [current.record, token]);
 
   return (
     <div>
-      <p><span className="mono">{acta}</span> <span className="pill warn">{detalle.motivo}</span></p>
+      <p><span className="mono">{current.record}</span> <span className="pill warn">{current.detail.reason}</span></p>
       <dl className="kv">
-        {CANDIDATOS.map((c) => (
-          <span key={c}><dt>{c}</dt><dd className="mono">{detalle.votos[c] ?? 0}</dd></span>
+        {CANDIDATES.map((c) => (
+          <span key={c}><dt>{c}</dt><dd className="mono">{current.detail.votes[c] ?? 0}</dd></span>
         ))}
-        <span><dt>Sufragantes</dt><dd className="mono">{detalle.sufragantes}</dd></span>
+        <span><dt>{es.decision.voters}</dt><dd className="mono">{current.detail.voters}</dd></span>
       </dl>
-      <label className="campo" htmlFor="decision">Decisión</label>
+      <h3>{es.history.title}</h3>
+      {history.state === "error" && <p className="meta">{es.history.error}</p>}
+      {history.state === "loading" && <p className="meta">{es.history.loading}</p>}
+      {history.state === "ready" && history.events.length === 0 && <p className="meta">{es.history.empty}</p>}
+      {history.state === "ready" && history.events.length > 0 && (
+        <ul className="history">
+          {history.events.map((h, i) => (
+            <li key={i} className="mono">{h.tipo} · v{h.version}</li>
+          ))}
+        </ul>
+      )}
+      <label className="field" htmlFor="decision">{es.decision.label}</label>
       <select id="decision" value={decision} onChange={(e) => setDecision(e.target.value as typeof decision)}>
-        <option value="APROBAR">Aprobar</option>
-        <option value="RECHAZAR">Rechazar</option>
-        <option value="CORREGIR">Corregir valores</option>
+        <option value="APROBAR">{es.decision.approve}</option>
+        <option value="RECHAZAR">{es.decision.reject}</option>
+        <option value="CORREGIR">{es.decision.correct}</option>
       </select>
       {decision === "CORREGIR" && (
         <>
-          <div className="rejilla">
-            {CANDIDATOS.map((c) => (
+          <div className="form-grid">
+            {CANDIDATES.map((c) => (
               <span key={c}>
-                <label className="campo" htmlFor={`c-${c}`}>{c}</label>
-                <input id={`c-${c}`} className="mono" inputMode="numeric" value={votos[c]} onChange={(e) => setVotos({ ...votos, [c]: e.target.value })} />
+                <label className="field" htmlFor={`c-${c}`}>{c}</label>
+                <input id={`c-${c}`} className="mono" inputMode="numeric" value={votes[c]} onChange={(e) => setVotes({ ...votes, [c]: e.target.value })} />
               </span>
             ))}
           </div>
-          <label className="campo" htmlFor="c-suf">Sufragantes</label>
-          <input id="c-suf" className="mono" inputMode="numeric" value={suf} onChange={(e) => setSuf(e.target.value)} />
-          {!cuadra && <p className="alerta" role="alert">La corrección debe cuadrar: suma de votos igual a sufragantes.</p>}
+          <label className="field" htmlFor="c-voters">{es.decision.voters}</label>
+          <input id="c-voters" className="mono" inputMode="numeric" value={voters} onChange={(e) => setVoters(e.target.value)} />
+          {!balanced && <p className="alert" role="alert">{es.decision.mustBalance}</p>}
         </>
       )}
-      <div className="botones">
+      <div className="actions">
         <button
-          className="primario"
+          className="btn-primary"
           type="button"
-          disabled={decision === "CORREGIR" && !cuadra}
-          onClick={() => con?.resolver(decision, decision === "CORREGIR" ? nums : undefined, decision === "CORREGIR" ? Number(suf) : undefined)}
+          disabled={decision === "CORREGIR" && !balanced}
+          onClick={() => link?.resolve(decision, decision === "CORREGIR" ? nums : undefined, decision === "CORREGIR" ? Number(voters) : undefined)}
         >
-          Resolver
+          {es.decision.resolve}
         </button>
-        <button className="secundario" type="button" onClick={() => con?.liberar()}>Liberar</button>
+        <button className="btn-secondary" type="button" onClick={() => link?.release()}>{es.decision.release}</button>
       </div>
     </div>
   );
 }
 
-function Acceso({ onEntrar }: { onEntrar: (s: SesionConsola) => void }): JSX.Element {
-  const [usuario, setUsuario] = useState("AUD-014");
-  const [clave, setClave] = useState("");
+function SignIn({ onEnter }: { onEnter: (s: ConsoleSession) => void }): JSX.Element {
+  const [user, setUser] = useState("AUD-014");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   return (
     <main className="col">
-      <h1>Ingreso de auditoría</h1>
-      <p className="sub">Cuentas AUD- o COORD-.</p>
+      <h1>{es.signIn.title}</h1>
+      <p className="sub">{es.signIn.sub}</p>
       <section className="card">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             setError(null);
-            void iniciarSesion(usuario.trim(), clave).then(onEntrar).catch((err: unknown) => {
-              setError(err instanceof Error ? err.message : "No se pudo ingresar");
+            void signIn(user.trim(), password).then(onEnter).catch((err: unknown) => {
+              const code = (err as { code?: string }).code;
+              if (code === "CREDENCIALES_INVALIDAS") setError(es.signIn.badCredentials);
+              else if (code === "LIMITE_TASA") setError(es.signIn.rateLimited);
+              else setError(err instanceof Error ? err.message : es.signIn.failed);
             });
           }}
         >
-          <label className="campo" htmlFor="u">Usuario</label>
-          <input id="u" className="mono" value={usuario} onChange={(e) => setUsuario(e.target.value)} autoComplete="username" />
-          <label className="campo" htmlFor="c">Clave</label>
-          <input id="c" type="password" value={clave} onChange={(e) => setClave(e.target.value)} autoComplete="current-password" />
-          {error && <p className="alerta" role="alert">{error}</p>}
-          <button className="primario" type="submit">Ingresar</button>
+          <label className="field" htmlFor="u">{es.signIn.user}</label>
+          <input id="u" className="mono" value={user} onChange={(e) => setUser(e.target.value)} autoComplete="username" />
+          <label className="field" htmlFor="c">{es.signIn.password}</label>
+          <input id="c" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+          {error && <p className="alert" role="alert">{error}</p>}
+          <button className="btn-primary" type="submit">{es.signIn.action}</button>
         </form>
       </section>
     </main>

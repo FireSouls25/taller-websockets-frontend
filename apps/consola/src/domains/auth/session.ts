@@ -1,40 +1,42 @@
-// Dominio auth (consola): auditores y coordinación.
-import { httpPost, rolDeUsuario, type LoginRespuesta } from "@preconteo/shared";
+// Console auth domain: auditors and coordination.
+import { fromWireLogin, httpPost, roleOfUser } from "@preconteo/shared";
+import { es } from "../../i18n/es.js";
 
-const CLAVE = "consola.sesion";
+const KEY = "consola.sesion";
 
-export interface SesionConsola {
+export interface ConsoleSession {
   token: string;
-  usuario: string;
-  esCoord: boolean;
+  user: string;
+  isCoordinator: boolean;
 }
 
-export function leerSesion(): SesionConsola | null {
+export function readSession(): ConsoleSession | null {
   try {
-    const raw = localStorage.getItem(CLAVE);
+    const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const s = JSON.parse(raw) as SesionConsola;
-    if (typeof s.token !== "string" || typeof s.usuario !== "string") return null;
+    const s = JSON.parse(raw) as ConsoleSession;
+    if (typeof s.token !== "string" || typeof s.user !== "string") return null;
     return s;
   } catch {
     return null;
   }
 }
 
-export async function iniciarSesion(usuario: string, clave: string): Promise<SesionConsola> {
-  const r = await httpPost<LoginRespuesta, { usuario: string; clave: string }>("/api/auth/login", {
-    usuario,
-    clave,
-  });
-  const rol = rolDeUsuario(r.usuario);
-  if (rol !== "auditor" && rol !== "coordinador") {
-    throw new Error(`La cuenta ${r.usuario} no es de auditoría`);
+export async function signIn(user: string, password: string): Promise<ConsoleSession> {
+  const wire = await httpPost<{ token: string; rol: string; usuario: string }, { usuario: string; clave: string }>(
+    "/api/auth/login",
+    { usuario: user, clave: password },
+  );
+  const r = fromWireLogin(wire);
+  const role = roleOfUser(r.user);
+  if (role !== "auditor" && role !== "coordinator") {
+    throw new Error(es.signIn.notAuditor(r.user));
   }
-  const s: SesionConsola = { token: r.token, usuario: r.usuario, esCoord: rol === "coordinador" };
-  localStorage.setItem(CLAVE, JSON.stringify(s));
+  const s: ConsoleSession = { token: r.token, user: r.user, isCoordinator: role === "coordinator" };
+  localStorage.setItem(KEY, JSON.stringify(s));
   return s;
 }
 
-export function cerrarSesion(): void {
-  localStorage.removeItem(CLAVE);
+export function signOut(): void {
+  localStorage.removeItem(KEY);
 }

@@ -1,203 +1,228 @@
-// Conexión de consola: rev monótono, exclusividad del backend, presencia.
-// Reglas: hueco de rev => sync; NO_DISPONIBLE es carrera normal;
-// caso_perdido cierra el caso; inactividad 5 min / desconexión 30 s lo liberan.
+// Console link: text revs, backend-owned exclusivity, presence.
+// Rules: drop events at/below the snapshot rev; NO_DISPONIBLE is a normal
+// race; caso_perdido closes the case; idle 5 min / offline 30 s releases it.
 import {
-  abrirWs,
+  compareRev,
+  fromWireCaseDetail,
+  fromWireConsoleSnapshot,
+  fromWireEventType,
+  fromWireLostReason,
+  fromWirePresence,
+  isStaleEvent,
+  openWs,
   apiBase,
-  necesitaSync,
-  type ColaItem,
-  type CasoAsignado,
-  type CasoPerdidoMotivo,
-  type ConsolaErrorCodigo,
-  type PresenciaAuditor,
-  type WsCanal,
+  type AssignedCase,
+  type AuditorPresence,
+  type ConsoleErrorCode,
+  type LostCaseReason,
+  type MyCase,
+  type ResolvedOutcome,
+  type ReviewQueueItem,
+  type WsChannel,
 } from "@preconteo/shared";
 
-export interface MiCaso {
-  acta: string;
-  detalle: { motivo: string; votos: Record<string, number>; sufragantes: number; version: number };
+export interface ConsoleView {
+  connected: boolean;
+  degraded: boolean;
+  rev: string;
+  queue: ReviewQueueItem[];
+  cases: AssignedCase[];
+  myCase: MyCase | null;
+  presence: AuditorPresence[];
+  notice: string | null;
+  idleWarning: boolean;
 }
 
-export interface EstadoConsola {
-  conectada: boolean;
-  degradado: boolean;
-  rev: number;
-  cola: ColaItem[];
-  casos: CasoAsignado[];
-  miCaso: MiCaso | null;
-  presencia: PresenciaAuditor[];
-  aviso: string | null;
-  avisoInactividad: boolean;
-}
-
-export interface EventosConsola {
-  onEstado: (e: EstadoConsola) => void;
+export interface ConsoleEvents {
+  onState: (s: ConsoleView) => void;
+  onResolved: (record: string, outcome: ResolvedOutcome) => void;
+  onRaceLost: () => void;
+  onErrorCode: (code: ConsoleErrorCode) => void;
+  onCaseLost: (record: string, reason: LostCaseReason) => void;
 }
 
 function wsBase(): string {
   return apiBase().replace(/^http/, "ws");
 }
 
-const ACTIVIDAD_MS = 15_000;
-const AVISO_INACTIVIDAD_MS = 4 * 60_000;
+const ACTIVITY_MS = 15_000;
+const IDLE_WARN_MS = 4 * 60_000;
+const SYNC_DEBOUNCE_MS = 500;
 
-export class ConexionConsola {
-  private canal: WsCanal | null = null;
-  private st: EstadoConsola = {
-    conectada: false,
-    degradado: false,
-    rev: 0,
-    cola: [],
-    casos: [],
-    miCaso: null,
-    presencia: [],
-    aviso: null,
-    avisoInactividad: false,
+export class ConsoleLink {
+  private channel: WsChannel | null = null;
+  private st: ConsoleView = {
+    connected: false,
+    degraded: false,
+    rev: "0-0",
+    queue: [],
+    cases: [],
+    myCase: null,
+    presence: [],
+    notice: null,
+    idleWarning: false,
   };
-  private ultimaActividad = 0;
-  private ultimoEnvioActividad = 0;
-  private timerInactividad: ReturnType<typeof setInterval> | null = null;
+  private lastInput = 0;
+  private lastActivitySent = 0;
+  private idleTimer: ReturnType<typeof setInterval> | null = null;
+  private syncTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private token: string,
-    private ev: EventosConsola,
+    private ev: ConsoleEvents,
   ) {}
 
-  arrancar(): void {
-    this.canal = abrirWs(`${wsBase()}/ws/consola?token=${encodeURIComponent(this.token)}`, {
-      onMensaje: (m) => this.alMensaje(m),
-      onEstado: (s) => {
-        this.st.conectada = s === "abierto";
-        if (s !== "abierto") {
-          this.st.aviso = "Conexión perdida: tu caso se libera en 30 s si no vuelve.";
+  start(): void {
+    this.channel = openWs(`${wsBase()}/ws/consola?token=${encodeURIComponent(this.token)}`, {
+      onMessage: (m) => this.onMessage(m),
+      onStatus: (s) => {
+        this.st.connected = s === "open";
+        if (s !== "open") {
+          this.st.notice = null;
         }
-        this.emitir();
+        this.emit();
       },
     });
-    const tocar = (): void => this.actividad();
-    window.addEventListener("mousemove", tocar);
-    window.addEventListener("keydown", tocar);
-    window.addEventListener("touchstart", tocar);
-    this.limpiar = () => {
-      window.removeEventListener("mousemove", tocar);
-      window.removeEventListener("keydown", tocar);
-      window.removeEventListener("touchstart", tocar);
+    const touch = (): void => this.input();
+    window.addEventListener("mousemove", touch);
+    window.addEventListener("keydown", touch);
+    window.addEventListener("touchstart", touch);
+    this.cleanup = () => {
+      window.removeEventListener("mousemove", touch);
+      window.removeEventListener("keydown", touch);
+      window.removeEventListener("touchstart", touch);
     };
-    this.ultimaActividad = Date.now();
-    this.timerInactividad = setInterval(() => {
-      const quieto = Date.now() - this.ultimaActividad > AVISO_INACTIVIDAD_MS;
-      if (quieto !== this.st.avisoInactividad) {
-        this.st.avisoInactividad = quieto;
-        if (quieto) this.st.aviso = "Llevas 4 min sin actividad: el caso se libera al minuto siguiente.";
-        this.emitir();
+    this.lastInput = Date.now();
+    this.idleTimer = setInterval(() => {
+      const idle = Date.now() - this.lastInput > IDLE_WARN_MS;
+      if (idle !== this.st.idleWarning) {
+        this.st.idleWarning = idle;
+        this.emit();
       }
     }, 15_000);
   }
 
-  private limpiar: () => void = () => undefined;
+  private cleanup: () => void = () => undefined;
 
-  detener(): void {
-    this.limpiar();
-    if (this.timerInactividad) clearInterval(this.timerInactividad);
-    this.canal?.cerrar();
+  stop(): void {
+    this.cleanup();
+    if (this.idleTimer) clearInterval(this.idleTimer);
+    if (this.syncTimer) clearTimeout(this.syncTimer);
+    this.channel?.close();
   }
 
-  tomar(acta?: string): void {
-    this.canal?.enviar(acta ? { t: "tomar", acta } : { t: "tomar" });
+  take(record?: string): void {
+    this.channel?.send(record ? { t: "tomar", acta: record } : { t: "tomar" });
   }
 
-  liberar(): void {
-    this.canal?.enviar({ t: "liberar" });
+  release(): void {
+    this.channel?.send({ t: "liberar" });
   }
 
-  resolver(decision: "APROBAR" | "RECHAZAR" | "CORREGIR", votos?: Record<string, number>, sufragantes?: number): void {
+  resolve(decision: "APROBAR" | "RECHAZAR" | "CORREGIR", votes?: Record<string, number>, voters?: number): void {
     if (decision === "CORREGIR") {
-      this.canal?.enviar({ t: "resolver", decision, votos, sufragantes });
+      this.channel?.send({ t: "resolver", decision, votos: votes, sufragantes: voters });
     } else {
-      this.canal?.enviar({ t: "resolver", decision });
+      this.channel?.send({ t: "resolver", decision });
     }
   }
 
-  private actividad(): void {
-    this.ultimaActividad = Date.now();
-    if (this.st.avisoInactividad) {
-      this.st.avisoInactividad = false;
-      this.st.aviso = null;
-      this.emitir();
+  private input(): void {
+    this.lastInput = Date.now();
+    if (this.st.idleWarning) {
+      this.st.idleWarning = false;
+      this.emit();
     }
-    // Throttle: máximo uno cada 15 s.
-    if (Date.now() - this.ultimoEnvioActividad < ACTIVIDAD_MS) return;
-    this.ultimoEnvioActividad = Date.now();
-    this.canal?.enviar({ t: "actividad" });
+    // Throttle: at most one every 15 s.
+    if (Date.now() - this.lastActivitySent < ACTIVITY_MS) return;
+    this.lastActivitySent = Date.now();
+    this.channel?.send({ t: "actividad" });
   }
 
-  private alMensaje(m: unknown): void {
+  private requestSync(): void {
+    if (this.syncTimer) return;
+    this.syncTimer = setTimeout(() => {
+      this.syncTimer = null;
+      this.channel?.send({ t: "sync" });
+    }, SYNC_DEBOUNCE_MS);
+  }
+
+  private onMessage(m: unknown): void {
     const msg = m as { t?: string };
     switch (msg.t) {
       case "snapshot": {
-        const s = m as { rev: number; total_cola: number; cola: ColaItem[]; casos: CasoAsignado[]; mi_caso?: MiCaso };
+        const s = fromWireConsoleSnapshot(
+          m as { t: "snapshot"; rev: string; total_cola: number; cola: never[]; casos: never[] },
+        );
+        if (compareRev(s.rev, this.st.rev) < 0) return; // stale photograph
         this.st.rev = s.rev;
-        this.st.cola = s.cola;
-        this.st.casos = s.casos;
-        if (s.mi_caso) this.st.miCaso = s.mi_caso; // recupero mi trabajo tras reconectar
-        this.st.aviso = null;
-        this.emitir();
+        this.st.queue = s.queue;
+        this.st.cases = s.cases;
+        if (s.myCase) this.st.myCase = s.myCase; // resume work after reconnect
+        this.st.notice = null;
+        this.emit();
         break;
       }
       case "evento": {
-        const e = m as { rev: number; tipo: string; acta: string; auditor?: string };
-        if (necesitaSync(this.st.rev, e.rev)) {
-          this.canal?.enviar({ t: "sync" }); // hueco: pido la fotografía completa
-        } else {
-          this.st.rev = e.rev;
-          this.canal?.enviar({ t: "sync" }); // el evento no trae el detalle: refresco
+        const e = m as { rev: string; tipo: string; acta: string; auditor?: string };
+        try {
+          fromWireEventType(e.tipo);
+        } catch {
+          return; // unknown event kind: ignore
         }
+        if (isStaleEvent(this.st.rev, e.rev)) return;
+        // Events carry no detail: refresh the photograph (debounced).
+        this.requestSync();
         break;
       }
       case "tomado": {
-        const t = m as { acta: string; detalle: MiCaso["detalle"] };
-        this.st.miCaso = { acta: t.acta, detalle: t.detalle };
-        this.st.aviso = null;
-        this.emitir();
+        const t = m as { acta: string; desde: number; detalle: { motivo: string; votos: Record<string, number>; sufragantes: number; version: number } };
+        this.st.myCase = {
+          record: t.acta,
+          since: t.desde,
+          detail: fromWireCaseDetail(t.detalle),
+        };
+        this.emit();
         break;
       }
       case "liberado":
-        this.st.miCaso = null;
-        this.emitir();
+        this.st.myCase = null;
+        this.emit();
         break;
       case "resuelto": {
-        const r = m as { acta: string; estado: string };
-        if (this.st.miCaso?.acta === r.acta) this.st.miCaso = null;
-        this.st.aviso = `${r.acta}: ${r.estado}`;
-        this.emitir();
+        const r = m as { acta: string; version: number; estado: ResolvedOutcome };
+        if (this.st.myCase?.record === r.acta) this.st.myCase = null;
+        this.ev.onResolved(r.acta, r.estado);
+        this.requestSync();
         break;
       }
       case "caso_perdido": {
-        const c = m as { acta: string; motivo: CasoPerdidoMotivo };
-        this.st.miCaso = null; // cierro de inmediato: no sigo editando
-        this.st.aviso = `Perdiste ${c.acta} (${c.motivo}).`;
-        this.emitir();
+        const c = m as { acta: string; motivo: string };
+        this.st.myCase = null; // close at once: never keep editing
+        this.ev.onCaseLost(c.acta, fromWireLostReason(c.motivo));
+        this.requestSync();
         break;
       }
-      case "presencia":
-        this.st.presencia = (m as { auditores: PresenciaAuditor[] }).auditores;
-        this.emitir();
+      case "presencia": {
+        const p = m as { auditores: Array<{ auditor: string; info: { instancia: string; rol: string; conectado_desde: number; ultima_actividad: number }; acta?: string; desde?: number }> };
+        this.st.presence = p.auditores.map(fromWirePresence);
+        this.emit();
         break;
+      }
       case "estado":
-        this.st.degradado = (m as { degradado?: boolean }).degradado === true;
-        this.emitir();
+        this.st.degraded = (m as { degradado?: boolean }).degradado === true;
+        this.emit();
         break;
       case "error": {
-        const codigo = (m as { codigo: ConsolaErrorCodigo }).codigo;
-        // NO_DISPONIBLE es carrera normal entre auditores, no un fallo.
-        this.st.aviso = codigo === "NO_DISPONIBLE" ? "Otro auditor tomó ese caso primero." : `Error: ${codigo}`;
-        this.emitir();
+        const code = (m as { codigo: ConsoleErrorCode }).codigo;
+        if (code === "NO_DISPONIBLE") this.ev.onRaceLost();
+        else this.ev.onErrorCode(code);
         break;
       }
     }
   }
 
-  private emitir(): void {
-    this.ev.onEstado({ ...this.st });
+  private emit(): void {
+    this.ev.onState({ ...this.st });
   }
 }
