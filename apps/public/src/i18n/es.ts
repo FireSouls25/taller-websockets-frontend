@@ -15,6 +15,13 @@ export const es = {
   title: "Resultados del preconteo",
   scopeLabel: "Ámbito",
   scopeNote: "Dos conexiones en vivo: departamento y ámbito elegido.",
+  catalog: {
+    municipality: "Municipio",
+    station: "Puesto",
+    allDepartments: "Todo el departamento",
+    allStations: "Todos los puestos",
+    error: "No se pudo cargar el catálogo territorial.",
+  },
   freshness: (reported: number, total: number, time: string): string =>
     `Informe rápido, no oficial · ${int.format(reported)} de ${int.format(total)} mesas · ${time}`,
   kpis: {
@@ -40,7 +47,10 @@ export const es = {
     action: "Ver",
     loading: "cargando…",
     error: "No se pudo cargar la mesa.",
+    invalid: "Mesa inválida (1–6400).",
     retry: "Reintentar",
+    reported: "Informada",
+    notReported: "Sin informar",
     fields: {
       table: "Mesa",
       station: "Puesto",

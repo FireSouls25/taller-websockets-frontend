@@ -1,20 +1,27 @@
 // Results domain: per-topic state + rAF render (RT-9).
 // snapshot REPLACES, delta merges (see @preconteo/shared). No heavy charts:
 // the ranking is a list whose row is the bar (proportional).
+// Scope comes from the live territorial catalog, never hardcoded.
 import {
   applyDelta,
   applySnapshot,
   fetchInstance,
+  fromWireCatalog,
   fromWireDelta,
   fromWireSnapshot,
+  fromWireTableDetail,
   httpGet,
   initialState,
+  isValidTopic,
   openStream,
   type DeltaWire,
   type ResultsDelta,
   type ResultsSnapshot,
   type SnapshotWire,
   type SseChannel,
+  type TableDetailWire,
+  type TerritorialCatalog,
+  type TerritorialCatalogWire,
   type TopicState,
 } from "@preconteo/shared";
 import { es, scopeName } from "../../i18n/es.js";
@@ -29,25 +36,24 @@ function shortTime(ts: number): string {
   return new Date(ts).toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit" });
 }
 
-export function mountView(fixedTopic: string, initialTopic: string): void {
+export function mountView(): void {
   applyCopy();
-  const states = new Map<string, TopicState>([
-    [fixedTopic, initialState()],
-    [initialTopic, initialState()],
-  ]);
+  const states = new Map<string, TopicState>();
   const etags = new Map<string, string>();
   const channels = new Map<string, SseChannel>();
   let paintQueued = false;
-  let visible = initialTopic;
+  let visible = "dep";
+  let catalog: TerritorialCatalog | null = null;
 
   paintLoading();
   void fetchInstance().then((i) => {
     $("instance-badge").textContent = es.connection.instance(i);
   });
+  void loadCatalog();
 
   const paint = (): void => {
     paintQueued = false;
-    const d = states.get(visible)?.snapshot ?? states.get(fixedTopic)?.snapshot;
+    const d = states.get(visible)?.snapshot ?? states.get("dep")?.snapshot;
     if (!d) return;
     $("scope-crumb").textContent = scopeName(visible);
     $("freshness").textContent = es.freshness(d.reported, d.total, shortTime(d.timestamp));
@@ -72,7 +78,7 @@ export function mountView(fixedTopic: string, initialTopic: string): void {
   };
 
   const connect = (topic: string): void => {
-    if (channels.has(topic)) return;
+    if (channels.has(topic) || !isValidTopic(topic)) return; // server answers 400 otherwise
     if (!states.has(topic)) states.set(topic, initialState());
     const etag = etags.get(topic);
     void httpGet<SnapshotWire>(
@@ -132,11 +138,75 @@ export function mountView(fixedTopic: string, initialTopic: string): void {
     channels.set(topic, channel);
   };
 
-  connect(fixedTopic);
-  connect(visible);
+  function currentTopic(): string {
+    const station = ($("station-select") as HTMLSelectElement).value;
+    if (station !== "") return `puesto:${station}`;
+    const municipality = ($("municipality-select") as HTMLSelectElement).value;
+    if (municipality !== "") return `mun:${municipality}`;
+    return "dep";
+  }
 
-  $("scope-select")?.addEventListener("change", (ev) => {
-    visible = (ev.target as HTMLSelectElement).value;
+  async function loadCatalog(): Promise<void> {
+    try {
+      const r = await httpGet<TerritorialCatalogWire>("/api/public/catalogo");
+      if ("notModified" in r) return;
+      catalog = fromWireCatalog(r.data);
+    } catch {
+      $("scope-note").textContent = `${es.catalog.error} `;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "inline-action";
+      b.textContent = es.tableLookup.retry;
+      b.onclick = () => {
+        $("scope-note").textContent = es.scopeNote;
+        void loadCatalog();
+      };
+      $("scope-note").appendChild(b);
+      connect("dep");
+      return;
+    }
+    const mun = $("municipality-select") as HTMLSelectElement;
+    for (const entry of catalog.municipalities) {
+      const o = document.createElement("option");
+      o.value = String(entry.id);
+      o.textContent = scopeName(`mun:${entry.id}`);
+      mun.appendChild(o);
+    }
+    mun.value = "11";
+    refreshStations();
+    visible = currentTopic();
+    connect("dep");
+    connect(visible);
+    requestPaint();
+  }
+
+  function refreshStations(): void {
+    const mun = ($("municipality-select") as HTMLSelectElement).value;
+    const st = $("station-select") as HTMLSelectElement;
+    st.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = "";
+    all.textContent = es.catalog.allStations;
+    st.appendChild(all);
+    const entry = catalog?.municipalities.find((m) => String(m.id) === mun);
+    st.disabled = !entry;
+    if (!entry) return;
+    for (const id of entry.stations) {
+      const o = document.createElement("option");
+      o.value = String(id);
+      o.textContent = scopeName(`puesto:${id}`);
+      st.appendChild(o);
+    }
+  }
+
+  $("municipality-select").addEventListener("change", () => {
+    refreshStations();
+    visible = currentTopic();
+    connect(visible);
+    requestPaint();
+  });
+  $("station-select").addEventListener("change", () => {
+    visible = currentTopic();
     connect(visible);
     requestPaint();
   });
@@ -147,20 +217,23 @@ export function mountView(fixedTopic: string, initialTopic: string): void {
     if (id === "") return;
     const box = $("table-detail");
     box.innerHTML = `<span class="dash">${es.tableLookup.loading}</span>`;
-    void httpGet<{ mesa: number; puesto: number; municipio: number; votos: Record<string, number>; sufragantes: number }>(
-      `/api/public/mesa/${encodeURIComponent(id)}`,
-    )
+    void httpGet<TableDetailWire>(`/api/public/mesa/${encodeURIComponent(id)}`)
       .then((r) => {
         if ("notModified" in r) return;
-        const detail = r.data;
+        const detail = fromWireTableDetail(r.data);
+        box.innerHTML = "";
+        const pill = document.createElement("p");
+        pill.innerHTML = "";
+        const badge = document.createElement("span");
+        badge.className = `pill ${detail.reported ? "live" : "neutral"}`;
+        badge.textContent = detail.reported ? es.tableLookup.reported : es.tableLookup.notReported;
+        pill.appendChild(badge);
+        box.appendChild(pill);
         const dl = document.createElement("dl");
         const rows: Array<[string, string]> = [
-          [es.tableLookup.fields.table, es.formatInt(detail.mesa)],
-          [es.tableLookup.fields.station, es.formatInt(detail.puesto)],
-          [es.tableLookup.fields.municipality, es.formatInt(detail.municipio)],
-          [es.tableLookup.fields.voters, es.formatInt(detail.sufragantes)],
+          [es.tableLookup.fields.voters, es.formatInt(detail.voters)],
         ];
-        for (const [k, v] of Object.entries(detail.votos)) rows.push([k, es.formatInt(v)]);
+        for (const [k, v] of Object.entries(detail.votes)) rows.push([k, es.formatInt(v)]);
         for (const [k, v] of rows) {
           const dt = document.createElement("dt");
           dt.textContent = k;
@@ -169,14 +242,14 @@ export function mountView(fixedTopic: string, initialTopic: string): void {
           dd.textContent = v;
           dl.append(dt, dd);
         }
-        box.innerHTML = "";
         box.appendChild(dl);
       })
-      .catch(() => {
+      .catch((e: unknown) => {
         box.innerHTML = "";
         const p = document.createElement("p");
         p.className = "error";
-        p.textContent = `${es.tableLookup.error} `;
+        const code = (e as { code?: string }).code;
+        p.textContent = `${code === "MESA_INVALIDA" ? es.tableLookup.invalid : es.tableLookup.error} `;
         const b = document.createElement("button");
         b.type = "button";
         b.className = "inline-action";
@@ -191,7 +264,8 @@ export function mountView(fixedTopic: string, initialTopic: string): void {
 function applyCopy(): void {
   $("brand").textContent = es.brand;
   $("app-title").textContent = es.title;
-  $("scope-label").textContent = es.scopeLabel;
+  $("scope-municipality-label").textContent = es.catalog.municipality;
+  $("scope-station-label").textContent = es.catalog.station;
   $("scope-note").textContent = es.scopeNote;
   $("k-reported-label").textContent = es.kpis.reported;
   $("k-progress-label").textContent = es.kpis.progress;
@@ -291,7 +365,7 @@ function paintCorrections(corrections: NonNullable<ResultsSnapshot["corrections"
     m.className = "reason";
     m.textContent = c.reason;
     const time = document.createElement("time");
-    time.textContent = shortTime(c.timestamp);
+    time.textContent = new Date(c.timestamp).toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit" });
     p.append(t, m, time);
     box.appendChild(p);
   }

@@ -40,12 +40,11 @@
       </div>
 
       <div class="scope-row">
-        <label class="scope"><span id="scope-label">Ámbito</span>
-          <select id="scope-select">
-            <option value="dep">Departamento</option>
-            <option value="mun:11" selected>Municipio 11</option>
-            <option value="puesto:176">Puesto 176</option>
-          </select>
+        <label class="scope"><span id="scope-municipality-label">Municipio</span>
+          <select id="municipality-select"><option value="">Todo el departamento</option></select>
+        </label>
+        <label class="scope"><span id="scope-station-label">Puesto</span>
+          <select id="station-select" disabled><option value="">Todos los puestos</option></select>
         </label>
         <p class="scope-note" id="scope-note">Dos conexiones en vivo: departamento y ámbito elegido.</p>
       </div>

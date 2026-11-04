@@ -9,4 +9,4 @@ onINP((m) => {
   console.info("[rt-9] INP", m.value);
 });
 
-mountView("dep", (document.getElementById("scope-select") as HTMLSelectElement | null)?.value ?? "mun:11");
+mountView();
