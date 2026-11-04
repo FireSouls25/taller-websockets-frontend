@@ -27,6 +27,8 @@ export const es = {
     password: "Clave",
     action: "Ingresar",
     notJuror: (user: string): string => `La cuenta ${user} no es de jurado`,
+    badCredentials: "Credenciales inválidas.",
+    rateLimited: "Demasiados intentos, espera unos segundos.",
     failed: "No se pudo ingresar",
   },
   header: {
@@ -55,6 +57,10 @@ export const es = {
     votesTitle: "Votos",
     mismatch:
       "La suma de votos no coincide con sufragantes: el acta irá a verificación humana. Puedes enviarla igual.",
+    territory:
+      "Mesa, puesto y municipio no coinciden entre sí: el servidor la rechazará. Revisa los números.",
+    codeMismatch: (expected: string): string =>
+      `Para esa mesa el acta debería ser ${expected}. Revisa el código.`,
     photo: "Foto del acta",
     noPhoto: "sin-foto",
     photoHash: (hash: string): string => `sha256 ${hash.slice(0, 32)}… (se conserva en el teléfono)`,
@@ -73,6 +79,8 @@ export const es = {
     },
     attempts: (n: number): string => `intentos ${n}`,
     correct: "Corregir",
+    query: "Estado",
+    invalidSession: "Sesión inválida, ingresa de nuevo.",
   },
 };
 

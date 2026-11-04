@@ -73,6 +73,6 @@ button.btn-text { background: none; border: none; text-decoration: underline; pa
 .queue-row .row-data { min-width: 0; }
 .queue-row .record-id { font-family: var(--mono); font-size: 13px; }
 .queue-row .row-detail { color: var(--muted); font-size: 12px; }
-.queue-row .row-action { margin-left: auto; flex: none; }
+.queue-row .row-action { margin-left: auto; flex: none; display: flex; gap: 8px; }
 .meta { color: var(--muted); font-size: 12px; }
 .hash { color: var(--faint); font-size: 12px; word-break: break-all; }

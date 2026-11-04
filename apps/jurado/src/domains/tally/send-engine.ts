@@ -24,6 +24,7 @@ export interface EngineCopy {
   ackNotice: (ack: TallyAck) => string;
   degradedNotice: string;
   recordState: (record: string, state: string) => string;
+  invalidSession: string;
 }
 
 export interface EngineEvents {
@@ -39,6 +40,16 @@ function wsBase(): string {
 }
 
 const RESEND_MS = 30_000;
+
+function isAckWire(data: unknown): data is TallyAckWire {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { t?: unknown }).t === "ack" &&
+    typeof (data as { acta?: unknown }).acta === "string" &&
+    typeof (data as { idem?: unknown }).idem === "string"
+  );
+}
 
 export class SendEngine {
   private channel: WsChannel | null = null;
@@ -79,6 +90,11 @@ export class SendEngine {
     });
     await this.refresh();
     void this.drain();
+  }
+
+  /** Asks the server for a record state (answers as estado_acta). */
+  queryRecord(code: string): void {
+    this.channel?.send({ t: "consultar", acta: code });
   }
 
   private onBackOnline = (): void => {
@@ -174,23 +190,33 @@ export class SendEngine {
       if (pending.length === 0) return;
       for (const r of pending) {
         await updateStatus(r.idem, { status: "sending", attempts: r.attempts + 1 });
-        try {
-          if (this.wsOpen) {
+        if (this.wsOpen) {
             // Main channel: the real ack arrives at onMessage and decides the queue.
             this.channel?.send({ t: "acta", data: toWireSheet(r.sheet) });
           } else {
-            // POST fallback with the same body; its response is the ack.
-            const wire = await httpPost<TallyAckWire, TallySheetWire>("/api/actas", toWireSheet(r.sheet), {
-              token: this.token,
-            });
-            await this.onAck(fromWireAck(wire));
+            // POST fallback with the same body. The backend answers 200, 422
+            // or 503 with the SAME ack object, so every answer decides here.
+            try {
+              const wire = await httpPost<TallyAckWire, TallySheetWire>("/api/actas", toWireSheet(r.sheet), {
+                token: this.token,
+              });
+              await this.onAck(fromWireAck(wire));
+            } catch (e) {
+              const err = e as { status?: number; code?: string; data?: unknown };
+              if ((err.status === 422 || err.status === 503) && isAckWire(err.data)) {
+                await this.onAck(fromWireAck(err.data));
+              } else if (err.status === 401) {
+                this.events.onNotice(this.copy.invalidSession);
+                await updateStatus(r.idem, { lastError: this.copy.invalidSession });
+                return; // retrying with a bad token is pointless
+              } else {
+                // Offline: the sheet stays queued; retry is automatic.
+                await updateStatus(r.idem, {
+                  lastError: e instanceof Error ? e.message : "offline",
+                });
+              }
+            }
           }
-        } catch (e) {
-          // Offline: the sheet stays queued; retry is automatic.
-          await updateStatus(r.idem, {
-            lastError: e instanceof Error ? e.message : "offline",
-          });
-        }
       }
       await this.refresh();
       const left = (await listQueue()).length;

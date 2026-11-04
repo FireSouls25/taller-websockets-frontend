@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 import {
+  expectedRecordCode,
+  isCoherentHierarchy,
   newIdem,
   fetchInstance,
   satisfiesTallyRule,
@@ -71,7 +73,12 @@ export function App(): JSX.Element {
     const eng = new SendEngine(
       session.token,
       { onQueue: setQueue, onConnection: setConnection, onNotice: setNotice },
-      { ackNotice: ackText, degradedNotice: es.degradedNotice, recordState: es.recordState },
+      {
+        ackNotice: ackText,
+        degradedNotice: es.degradedNotice,
+        recordState: es.recordState,
+        invalidSession: es.queue.invalidSession,
+      },
     );
     engine.current = eng;
     eng.start();
@@ -87,6 +94,13 @@ export function App(): JSX.Element {
     return o;
   }, [draft]);
   const balanced = satisfiesTallyRule(votesNum, Number(draft.voters || 0));
+  const tableNum = Number(draft.table || 0);
+  const stationNum = Number(draft.station || 0);
+  const municipalityNum = Number(draft.municipality || 0);
+  const hierarchyFilled = draft.table !== "" && draft.station !== "" && draft.municipality !== "";
+  const coherent = !hierarchyFilled || isCoherentHierarchy(tableNum, stationNum, municipalityNum);
+  const codeMatches =
+    draft.table === "" || draft.code.trim() === "" || draft.code.trim() === expectedRecordCode(tableNum);
 
   if (!session) {
     return <SignIn onEnter={setSession} />;
@@ -189,6 +203,12 @@ export function App(): JSX.Element {
             {!balanced && draft.voters !== "" && (
               <p className="alert" role="alert">{es.form.mismatch}</p>
             )}
+            {!coherent && (
+              <p className="alert" role="alert">{es.form.territory}</p>
+            )}
+            {coherent && !codeMatches && (
+              <p className="alert" role="alert">{es.form.codeMismatch(expectedRecordCode(tableNum))}</p>
+            )}
             <label className="field" htmlFor="f-photo">{es.form.photo}</label>
             <input
               id="f-photo"
@@ -224,6 +244,7 @@ export function App(): JSX.Element {
                   <span className="row-detail">{es.queue.attempts(item.attempts)}</span>
                 </span>
                 <span className="row-action">
+                  <button className="btn-secondary" type="button" onClick={() => engine.current?.queryRecord(item.sheet.code)}>{es.queue.query}</button>{" "}
                   <button className="btn-secondary" type="button" onClick={() => startCorrection(item)}>{es.queue.correct}</button>
                 </span>
               </div>
@@ -249,7 +270,10 @@ function SignIn({ onEnter }: { onEnter: (s: Session) => void }): JSX.Element {
             e.preventDefault();
             setError(null);
             void signIn(user.trim(), password).then(onEnter).catch((err: unknown) => {
-              setError(err instanceof Error ? err.message : es.signIn.failed);
+              const code = (err as { code?: string }).code;
+              if (code === "CREDENCIALES_INVALIDAS") setError(es.signIn.badCredentials);
+              else if (code === "LIMITE_TASA") setError(es.signIn.rateLimited);
+              else setError(err instanceof Error ? err.message : es.signIn.failed);
             });
           }}
         >
