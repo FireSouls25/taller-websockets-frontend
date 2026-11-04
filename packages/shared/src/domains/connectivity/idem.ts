@@ -1,7 +1,7 @@
-// Generación de idem: UNA por envío, se reutiliza en reintentos.
-// Nunca regenerar en un reintento: esa es la garantía anti-doble-conteo.
+// Idem generation: ONCE per submission, reused across retries.
+// Never regenerate on retry: that is the anti-double-count guarantee.
 
-export function nuevoIdem(): string {
+export function newIdem(): string {
   const c = globalThis.crypto;
   if (c?.randomUUID !== undefined) return c.randomUUID();
   const b = new Uint8Array(16);

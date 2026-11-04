@@ -1,26 +1,37 @@
-// Dominio: auth (login REST + token en WS y REST).
+// Domain: auth (REST login + token on WS and REST).
+// Wire format (API contract) uses Spanish keys and must not be renamed.
 
-export type Rol = "jurado" | "auditor" | "coordinador" | "publico";
+export type Role = "juror" | "auditor" | "coordinator" | "public";
 
-export interface LoginRespuesta {
+export interface LoginResponse {
+  token: string;
+  role: string;
+  user: string;
+}
+
+interface LoginResponseWire {
   token: string;
   rol: string;
   usuario: string;
 }
 
-/** El rol sale del prefijo: JUR- jurado, AUD- auditor, COORD- coordinador. */
-export function rolDeUsuario(usuario: string): Rol {
-  if (usuario.startsWith("JUR-")) return "jurado";
-  if (usuario.startsWith("AUD-")) return "auditor";
-  if (usuario.startsWith("COORD-")) return "coordinador";
-  return "publico";
+export function fromWireLogin(w: LoginResponseWire): LoginResponse {
+  return { token: w.token, role: w.rol, user: w.usuario };
+}
+
+/** The role comes from the prefix: JUR- juror, AUD- auditor, COORD- coordinator. */
+export function roleOfUser(user: string): Role {
+  if (user.startsWith("JUR-")) return "juror";
+  if (user.startsWith("AUD-")) return "auditor";
+  if (user.startsWith("COORD-")) return "coordinator";
+  return "public";
 }
 
 export function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-export function wsUrlConToken(base: string, path: "/ws/jurado" | "/ws/consola", token: string): string {
+export function wsUrlWithToken(base: string, path: "/ws/jurado" | "/ws/consola", token: string): string {
   const b = base.replace(/\/$/, "");
   return `${b}${path}?token=${encodeURIComponent(token)}`;
 }

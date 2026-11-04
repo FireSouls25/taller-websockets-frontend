@@ -1,12 +1,14 @@
-// Kernel compartido. Sin frameworks, sin estado ligado a conexión.
-export * from "./domains/electoral/resultados.js";
-export * from "./domains/electoral/actas.js";
-export * from "./domains/electoral/verificacion.js";
-export * from "./domains/electoral/operacion.js";
+// Shared kernel. No frameworks, no connection-bound state.
+// Protocol literals (wire keys, event names, codes, topic strings) follow the
+// backend contract; every other identifier is English.
+export * from "./domains/electoral/results.js";
+export * from "./domains/electoral/tally.js";
+export * from "./domains/electoral/verification.js";
+export * from "./domains/electoral/operation.js";
 export * from "./domains/electoral/auth.js";
-export * from "./domains/conectividad/backoff.js";
-export * from "./domains/conectividad/http.js";
-export * from "./domains/conectividad/sse-channel.js";
-export * from "./domains/conectividad/ws-channel.js";
-export * from "./domains/conectividad/idem.js";
-export * from "./domains/conectividad/instance.js";
+export * from "./domains/connectivity/backoff.js";
+export * from "./domains/connectivity/http.js";
+export * from "./domains/connectivity/sse-channel.js";
+export * from "./domains/connectivity/ws-channel.js";
+export * from "./domains/connectivity/idem.js";
+export * from "./domains/connectivity/instance.js";
