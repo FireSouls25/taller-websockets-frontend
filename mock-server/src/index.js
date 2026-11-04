@@ -43,16 +43,22 @@ function snapshot(topic, s = seq(topic)) {
 }
 
 app.post("/api/auth/login", (req, res) => {
-  const { usuario } = req.body ?? {};
+  const { usuario, clave } = req.body ?? {};
   if (typeof usuario !== "string") return res.status(400).json({ error: "ESQUEMA" });
+  if (typeof clave !== "string" || clave === "") return res.status(401).json({ error: "CREDENCIALES_INVALIDAS" });
   res.json({ token: `mock-${usuario}`, rol: usuario.split("-")[0], usuario });
 });
 
 app.get("/api/public/catalogo", (_req, res) => {
-  res.json({
-    municipios: Array.from({ length: 55 }, (_, i) => ({ id: i + 1, nombre: `Municipio ${i + 1}` })),
-    puestos: 1842,
-  });
+  const municipios = [];
+  for (let id = 1; id <= 55; id++) {
+    const puestos = [];
+    for (let p = 1; p <= 1842; p++) {
+      if ((p % 55 || 55) === id) puestos.push(p);
+    }
+    municipios.push({ id, puestos });
+  }
+  res.json({ total_mesas: 6400, total_puestos: 1842, municipios });
 });
 
 app.get("/api/public/snapshot", (req, res) => {
@@ -65,16 +71,26 @@ app.get("/api/public/snapshot", (req, res) => {
 });
 
 app.get("/api/public/mesa/:id", (req, res) => {
-  res.json({ mesa: Number(req.params.id), puesto: 176, municipio: 11, votos: { ...votosBase }, sufragantes: 627 });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id < 1 || id > 6400) return res.status(400).json({ error: "MESA_INVALIDA" });
+  res.json({ mesa: id, informada: true, sufragantes: 627, votos: { ...estado(`mesa:${id}`).votos } });
 });
+
+function topicoValido(t) {
+  if (t === "dep") return true;
+  const m = /^(mun|puesto):([1-9]\d{0,3})$/.exec(t ?? "");
+  if (!m) return false;
+  return Number(m[2]) <= (m[1] === "mun" ? 55 : 1842);
+}
 
 // SSE: un tópico por conexión. Eventos snapshot/delta/sistema/reconectar.
 app.get("/api/public/stream", (req, res) => {
   const topic = String(req.query.topic ?? "dep");
+  if (!topicoValido(topic)) return res.status(400).json({ error: "TOPICO_INVALIDO" });
   const modo = String(req.query.modo ?? "");
   if (modo === "503") {
     res.setHeader("Retry-After", "2");
-    return res.status(503).json({ error: "SERVICIO_NO_DISPONIBLE" });
+    return res.status(503).json({ error: "SATURADO" });
   }
   const lastEventId = Number(req.query.lastEventId ?? -1);
   res.writeHead(200, {
@@ -103,28 +119,55 @@ app.get("/api/public/stream", (req, res) => {
     const e = estado(topic);
     e.votos.C1 += 1;
     e.suf += 1;
-    send("delta", { seq: seq(topic), topic, ts: Date.now(), votos: { C1: e.votos.C1 }, sufragantes: e.suf });
+    const ahora = Date.now();
+    send("delta", { seq: seq(topic), topic, ts: ahora, votos: { C1: e.votos.C1 }, sufragantes: e.suf, oldest: ahora - 1000, n: 1 });
   }, 2000);
   req.on("close", () => clearInterval(t));
 });
 
+const puestoDeMesa = (mesa) => (mesa + 1501) % 1842 || 1842;
+const municipioDePuesto = (puesto) => puesto % 55 || 55;
+
 app.post("/api/actas", (req, res) => {
-  const { acta, version, idem } = req.body ?? {};
+  const { acta, version, idem, mesa, puesto, municipio } = req.body ?? {};
   if (typeof acta !== "string" || typeof idem !== "string") return res.status(400).json({ error: "ESQUEMA" });
+  const coherente =
+    Number.isInteger(mesa) && puestoDeMesa(mesa) === puesto && municipioDePuesto(puesto) === municipio;
+  if (!coherente) {
+    return res.status(422).json({
+      t: "ack", acta, version: version ?? 1, idem,
+      estado: "RECHAZADA", motivo: "TERRITORIO_INCOHERENTE", ts: Date.now(),
+    });
+  }
   // Idempotencia ingenua del mock: mismo idem => duplicado:true pero REGISTRADA.
-  res.json({ t: "ack", acta, version: version ?? 1, idem, estado: "REGISTRADA", duplicado: false, ts: Date.now() });
+  const duplicado = vistos.has(idem);
+  vistos.set(idem, true);
+  res.json({ t: "ack", acta, version: version ?? 1, idem, estado: "REGISTRADA", duplicado, ts: Date.now() });
 });
 
-app.get("/api/ops/metrics", (_req, res) => {
+app.get("/api/ops/metrics", (req, res) => {
+  const foto = {
+    instancia: INSTANCE, ts: Date.now(),
+    conexiones: { publicas: 12, jurados: 3, consolas: 2 },
+    event_loop_ms: { p50: 4, p99: 18, max: 40 },
+    memoria: { rss_mb: 96, heap_mb: 58, kb_por_conexion: 24 },
+    mensajes: { emitidos: 1200, por_segundo: 30, latidos: 60, bytes: 48000 },
+    contrapresion: { rezagos: 0, expulsadas: 0, admision_rechazadas: 0 },
+    actas_por_minuto: 90, retraso_publicacion_ms: 1800,
+    redis_saludable: true, postgres_ok: true, auditoria_guardados: 0,
+  };
+  if (String(req.query.modo ?? "") === "redis-down") {
+    return res.status(503).json({
+      global: null,
+      instancias: [{ ...foto, redis_saludable: false }],
+    });
+  }
   res.json({
-    instancias: [{
-      id: INSTANCE, conexionesPublicas: 12, conexionesJurados: 3, conexionesConsolas: 2,
-      eventLoopP50: 4, eventLoopP99: 18, eventLoopMax: 40, memoriaPorConexion: 24,
-      mensajesPorSegundo: 30, redis: "ok",
-    }],
+    instancias: [foto],
     global: {
-      mensajesEmitidosTotal: 1200, cifraIngenua: 2560000000,
-      conexionesTotales: 17, actasPorMinuto: 90, retrasoPublicacion: 1800,
+      instancias_vivas: 1, conexiones_publicas: 12,
+      mensajes_emitidos: 1200, mensajes_ingenuos: 2560000000, reduccion_factor: 2133333.3,
+      actas_por_minuto: 90, retraso_publicacion_ms: 1800,
     },
   });
 });
@@ -157,7 +200,9 @@ wss.on("connection", (ws, req) => {
 });
 
 // --- WS consola: cola con asignación exclusiva (el backend decide orden y dueño) ---
-let revConsola = 41;
+// `rev` es texto "ms-secuencia", como en el contrato real.
+let revConsolaN = 41;
+const revConsola = () => `${Date.now()}-${(revConsolaN += 1)}`;
 const colaVerif = [
   { acta: "E14-176-0042-03", version: 1, motivo: "REGLA_CONTABLE", prioridad: 9, mesa: 4201, puesto: 176, municipio: 11, recibida: Date.now() },
   { acta: "E14-088-0011-01", version: 2, motivo: "CONFLICTO_VERSION", prioridad: 5, mesa: 12, puesto: 88, municipio: 3, recibida: Date.now() },
@@ -173,8 +218,8 @@ function auditorDe(url) {
 function fotoConsola(solicitante) {
   const casos = [...casosVerif.entries()].map(([acta, c]) => ({ acta, auditor: c.auditor, desde: c.desde }));
   const mio = [...casosVerif.entries()].find(([, c]) => c.auditor === solicitante)?.[0];
-  const snap = { t: "snapshot", rev: revConsola, total_cola: colaVerif.length, cola: colaVerif, casos };
-  if (mio) snap.mi_caso = { acta: mio, detalle: detalleDe(mio) };
+  const snap = { t: "snapshot", rev: revConsola(), total_cola: colaVerif.length, cola: colaVerif, casos };
+  if (mio) snap.mi_caso = { acta: mio, desde: casosVerif.get(mio).desde, detalle: detalleDe(mio) };
   return snap;
 }
 
@@ -200,7 +245,15 @@ function emitirPresencia() {
   const auditores = [...consolas].map((c) => {
     const caso = [...casosVerif.entries()].find(([, k]) => k.auditor === c.auditor)?.[0];
     const desde = caso ? casosVerif.get(caso).desde : undefined;
-    const base = { auditor: c.auditor, info: c.esCoord ? "coordinación" : "auditoría" };
+    const base = {
+      auditor: c.auditor,
+      info: {
+        instancia: INSTANCE,
+        rol: c.esCoord ? "coordinador" : "auditor",
+        conectado_desde: c.conectadoDesde,
+        ultima_actividad: c.ultimaActividad ?? c.conectadoDesde,
+      },
+    };
     return caso ? { ...base, acta: caso, desde } : base;
   });
   emitirConsola({ t: "presencia", auditores }, true);
@@ -209,7 +262,7 @@ function emitirPresencia() {
 function atenderConsola(ws, url) {
   const auditor = auditorDe(url);
   const esCoord = auditor.startsWith("COORD-");
-  const yo = { ws, auditor, esCoord };
+  const yo = { ws, auditor, esCoord, conectadoDesde: Date.now(), ultimaActividad: Date.now() };
   consolas.add(yo);
   ws.send(JSON.stringify(fotoConsola(auditor)));
   emitirPresencia();
@@ -219,7 +272,10 @@ function atenderConsola(ws, url) {
     let msg;
     try { msg = JSON.parse(String(raw)); } catch { return; }
     if (msg.t === "sync") return ws.send(JSON.stringify(fotoConsola(auditor)));
-    if (msg.t === "actividad") return emitirPresencia();
+    if (msg.t === "actividad") {
+      yo.ultimaActividad = Date.now();
+      return emitirPresencia();
+    }
     if (msg.t === "tomar") {
       const tomado = [...casosVerif.entries()].find(([, c]) => c.auditor === auditor)?.[0];
       if (tomado) return ws.send(JSON.stringify({ t: "error", codigo: "YA_TIENE_CASO" }));
@@ -236,9 +292,9 @@ function atenderConsola(ws, url) {
       const detalle = detalleDe(item.acta);
       colaVerif.splice(colaVerif.indexOf(item), 1);
       casosVerif.set(item.acta, { auditor, desde: Date.now() });
-      revConsola += 1;
+      const rev = revConsola();
       ws.send(JSON.stringify({ t: "tomado", acta: item.acta, desde: Date.now(), detalle }));
-      emitirConsola({ t: "evento", rev: revConsola, tipo: "tomado", acta: item.acta, auditor });
+      emitirConsola({ t: "evento", rev, tipo: "tomado", acta: item.acta, auditor });
       return emitirPresencia();
     }
     if (msg.t === "liberar") {
@@ -247,9 +303,9 @@ function atenderConsola(ws, url) {
       const dueno = casosVerif.get(acta);
       if (dueno.auditor !== auditor) return ws.send(JSON.stringify({ t: "error", codigo: "BLOQUEO_PERDIDO" }));
       casosVerif.delete(acta);
-      revConsola += 1;
+      const revLiberado = revConsola();
       ws.send(JSON.stringify({ t: "liberado", acta }));
-      emitirConsola({ t: "evento", rev: revConsola, tipo: "liberado", acta, auditor });
+      emitirConsola({ t: "evento", rev: revLiberado, tipo: "liberado", acta, auditor });
       return emitirPresencia();
     }
     if (msg.t === "resolver") {
@@ -262,10 +318,10 @@ function atenderConsola(ws, url) {
         if (suma !== msg.sufragantes) return ws.send(JSON.stringify({ t: "error", codigo: "DATOS_INVALIDOS" }));
       }
       casosVerif.delete(acta);
-      revConsola += 1;
-      const estado = msg.decision === "RECHAZAR" ? "RECHAZADA_EN_VERIFICACION" : "REGISTRADA";
+      const revResuelto = revConsola();
+      const estado = msg.decision === "RECHAZAR" ? "RECHAZADA" : "CONTADA";
       ws.send(JSON.stringify({ t: "resuelto", acta, version: 1, estado }));
-      emitirConsola({ t: "evento", rev: revConsola, tipo: "resuelto", acta, auditor });
+      emitirConsola({ t: "evento", rev: revResuelto, tipo: "resuelto", acta, auditor });
       return emitirPresencia();
     }
   });
@@ -279,8 +335,8 @@ function atenderConsola(ws, url) {
     setTimeout(() => {
       if (casosVerif.get(acta)?.auditor !== auditor) return;
       casosVerif.delete(acta);
-      revConsola += 1;
-      emitirConsola({ t: "evento", rev: revConsola, tipo: "expirado", acta, auditor });
+      const rev = revConsola();
+      emitirConsola({ t: "evento", rev, tipo: "expirado", acta, auditor });
       emitirPresencia();
     }, 30_000);
     emitirPresencia();
