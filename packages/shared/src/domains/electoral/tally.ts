@@ -54,7 +54,7 @@ export interface TallySheetWire {
   idem: string;
 }
 
-interface TallyAckWire {
+export interface TallyAckWire {
   t: "ack";
   acta: string;
   version: number;

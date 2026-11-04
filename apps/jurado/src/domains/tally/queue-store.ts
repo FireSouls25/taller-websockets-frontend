@@ -1,47 +1,47 @@
-// Dominio actas: cola offline en IndexedDB (RT-6).
-// El acta se guarda ANTES de intentar enviarla; sobrevive a recarga y cierre.
+// Tally domain: offline queue in IndexedDB (RT-6).
+// The sheet is stored BEFORE any send attempt; it survives reload and close.
 import { openDB, type DBSchema } from "idb";
-import type { Acta, ColaActaEstado } from "@preconteo/shared";
+import type { PendingStatus, TallySheet } from "@preconteo/shared";
 
-export interface RegistroCola {
+export interface PendingSubmission {
   idem: string;
-  acta: Acta;
-  foto: Blob | null; // la subida aún no existe: se conserva local
-  estado: ColaActaEstado;
-  intentos: number;
-  ultimoError?: string;
-  actualizadaEn: number;
+  sheet: TallySheet;
+  photo: Blob | null; // upload does not exist yet: kept locally
+  status: PendingStatus;
+  attempts: number;
+  lastError?: string;
+  updatedAt: number;
 }
 
-interface JuradoDB extends DBSchema {
-  cola: { key: string; value: RegistroCola };
+interface JurorDB extends DBSchema {
+  queue: { key: string; value: PendingSubmission };
 }
 
-const db = openDB<JuradoDB>("jurado-preconteo", 1, {
+const db = openDB<JurorDB>("jurado-preconteo", 1, {
   upgrade(d) {
-    d.createObjectStore("cola", { keyPath: "idem" });
+    d.createObjectStore("queue", { keyPath: "idem" });
   },
 });
 
-export async function guardarEnCola(r: RegistroCola): Promise<void> {
-  (await db).put("cola", r);
+export async function saveSubmission(r: PendingSubmission): Promise<void> {
+  (await db).put("queue", r);
 }
 
-export async function listarCola(): Promise<RegistroCola[]> {
-  const todas = await (await db).getAll("cola");
-  return todas.sort((a, b) => a.actualizadaEn - b.actualizadaEn);
+export async function listQueue(): Promise<PendingSubmission[]> {
+  const all = await (await db).getAll("queue");
+  return all.sort((a, b) => a.updatedAt - b.updatedAt);
 }
 
-export async function quitarDeCola(idem: string): Promise<void> {
-  await (await db).delete("cola", idem);
+export async function removeFromQueue(idem: string): Promise<void> {
+  await (await db).delete("queue", idem);
 }
 
-export async function marcarEstado(
+export async function updateStatus(
   idem: string,
-  parche: Partial<Pick<RegistroCola, "estado" | "intentos" | "ultimoError" | "actualizadaEn">>,
+  patch: Partial<Pick<PendingSubmission, "status" | "attempts" | "lastError" | "updatedAt">>,
 ): Promise<void> {
   const t = await db;
-  const actual = await t.get("cola", idem);
-  if (!actual) return;
-  await t.put("cola", { ...actual, ...parche, actualizadaEn: Date.now() });
+  const current = await t.get("queue", idem);
+  if (!current) return;
+  await t.put("queue", { ...current, ...patch, updatedAt: Date.now() });
 }

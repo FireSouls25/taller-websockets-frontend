@@ -1,136 +1,133 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from "react";
 import {
-  cumpleReglaContable,
-  nuevoIdem,
-  obtenerInstancia,
+  newIdem,
+  fetchInstance,
+  satisfiesTallyRule,
   sha256Hex,
-  type Acta,
+  type TallySheet,
 } from "@preconteo/shared";
-import { cerrarSesion, iniciarSesion, leerSesion, type Sesion } from "../domains/auth/sesion.js";
-import { MotorEnvio } from "../domains/actas/motor-envio.js";
-import type { RegistroCola } from "../domains/actas/cola-store.js";
+import { readSession, signIn, signOut, type Session } from "../domains/auth/session.js";
+import { SendEngine, type QueueView } from "../domains/tally/send-engine.js";
+import { ackText, es } from "../i18n/es.js";
 
-const CANDIDATOS = ["C1", "C2", "C3", "BLANCO", "NULO", "NO_MARCADO"];
+const CANDIDATES = ["C1", "C2", "C3", "BLANCO", "NULO", "NO_MARCADO"];
 
-interface Borrador {
-  acta: string;
-  mesa: string;
-  puesto: string;
-  municipio: string;
+interface Draft {
+  code: string;
+  table: string;
+  station: string;
+  municipality: string;
   version: string;
-  votos: Record<string, string>;
-  sufragantes: string;
+  votes: Record<string, string>;
+  voters: string;
 }
 
-const borradorVacio = (): Borrador => ({
-  acta: "",
-  mesa: "",
-  puesto: "",
-  municipio: "",
+const emptyDraft = (): Draft => ({
+  code: "",
+  table: "",
+  station: "",
+  municipality: "",
   version: "1",
-  votos: Object.fromEntries(CANDIDATOS.map((c) => [c, ""])),
-  sufragantes: "",
+  votes: Object.fromEntries(CANDIDATES.map((c) => [c, ""])),
+  voters: "",
 });
 
-function estadoPildora(r: RegistroCola): { clase: string; texto: string } {
-  switch (r.estado) {
-    case "guardada":
-      return { clase: "neutral", texto: "guardada localmente" };
-    case "enviando":
-      return { clase: "warn", texto: r.ultimoError ? `enviando · ${r.ultimoError}` : "enviando" };
-    case "registrada":
-      return { clase: "live", texto: "registrada" };
-    case "en-revision":
-      return { clase: "warn", texto: "en revisión" };
-    case "rechazada":
-      return { clase: "bad", texto: r.ultimoError ?? "rechazada" };
+function pillForStatus(item: QueueView[number]): { tone: string; text: string } {
+  switch (item.status) {
+    case "stored":
+      return { tone: "neutral", text: es.queue.status.stored };
+    case "sending":
+      return {
+        tone: "warn",
+        text: item.lastError ? es.queue.status.sendingWithError(item.lastError) : es.queue.status.sending,
+      };
+    case "registered":
+      return { tone: "live", text: es.queue.status.registered };
+    case "in-review":
+      return { tone: "warn", text: es.queue.status.inReview };
+    case "rejected":
+      return { tone: "bad", text: item.lastError ?? es.queue.status.registered };
   }
 }
 
 export function App(): JSX.Element {
-  const [sesion, setSesion] = useState<Sesion | null>(() => leerSesion());
-  const [cola, setCola] = useState<RegistroCola[]>([]);
-  const [conexion, setConexion] = useState("conectando");
-  const [aviso, setAviso] = useState<string | null>(null);
-  const [instancia, setInstancia] = useState("…");
-  const [borrador, setBorrador] = useState<Borrador>(borradorVacio);
-  const [foto, setFoto] = useState<Blob | null>(null);
-  const [hashFoto, setHashFoto] = useState("");
-  const [errorForm, setErrorForm] = useState<string | null>(null);
-  const motor = useRef<MotorEnvio | null>(null);
+  const [session, setSession] = useState<Session | null>(() => readSession());
+  const [queue, setQueue] = useState<QueueView>([]);
+  const [connection, setConnection] = useState("connecting");
+  const [notice, setNotice] = useState<string | null>(null);
+  const [instance, setInstance] = useState("…");
+  const [draft, setDraft] = useState<Draft>(emptyDraft);
+  const [photo, setPhoto] = useState<Blob | null>(null);
+  const [photoHash, setPhotoHash] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+  const engine = useRef<SendEngine | null>(null);
 
   useEffect(() => {
-    void obtenerInstancia().then(setInstancia);
+    void fetchInstance().then(setInstance);
   }, []);
 
   useEffect(() => {
-    if (!sesion) return;
-    const m = new MotorEnvio(sesion.token, {
-      onCola: setCola,
-      onConexion: setConexion,
-      onAviso: setAviso,
-    });
-    motor.current = m;
-    m.arrancar();
-    return () => {
-      m.detener();
-      motor.current = null;
-    };
-  }, [sesion]);
-
-  const votosNum = useMemo(() => {
-    const o: Record<string, number> = {};
-    for (const c of CANDIDATOS) o[c] = Number(borrador.votos[c] || 0);
-    return o;
-  }, [borrador]);
-  const cuadra = cumpleReglaContable(votosNum, Number(borrador.sufragantes || 0));
-
-  if (!sesion) {
-    return (
-      <Acceso
-        onEntrar={(s) => {
-          setSesion(s);
-        }}
-      />
+    if (!session) return;
+    const eng = new SendEngine(
+      session.token,
+      { onQueue: setQueue, onConnection: setConnection, onNotice: setNotice },
+      { ackNotice: ackText, degradedNotice: es.degradedNotice, recordState: es.recordState },
     );
+    engine.current = eng;
+    eng.start();
+    return () => {
+      eng.stop();
+      engine.current = null;
+    };
+  }, [session]);
+
+  const votesNum = useMemo(() => {
+    const o: Record<string, number> = {};
+    for (const c of CANDIDATES) o[c] = Number(draft.votes[c] || 0);
+    return o;
+  }, [draft]);
+  const balanced = satisfiesTallyRule(votesNum, Number(draft.voters || 0));
+
+  if (!session) {
+    return <SignIn onEnter={setSession} />;
   }
 
-  const enviar = async (ev: React.FormEvent): Promise<void> => {
+  const submit = async (ev: React.FormEvent): Promise<void> => {
     ev.preventDefault();
-    setErrorForm(null);
-    const acta: Acta = {
-      acta: borrador.acta.trim(),
-      mesa: Number(borrador.mesa),
-      puesto: Number(borrador.puesto),
-      municipio: Number(borrador.municipio),
-      version: Number(borrador.version || 1),
-      jurado: sesion.usuario,
-      ts_cierre: Math.floor(Date.now() / 1000),
-      votos: votosNum,
-      sufragantes: Number(borrador.sufragantes),
-      hash_foto: hashFoto || "sin-foto",
-      idem: nuevoIdem(), // UNA vez por envío; los reintentos lo reutilizan
+    setFormError(null);
+    const sheet: TallySheet = {
+      code: draft.code.trim(),
+      table: Number(draft.table),
+      station: Number(draft.station),
+      municipality: Number(draft.municipality),
+      version: Number(draft.version || 1),
+      juror: session.user,
+      closedAt: Math.floor(Date.now() / 1000),
+      votes: votesNum,
+      voters: Number(draft.voters),
+      photoHash: photoHash || es.form.noPhoto,
+      idem: newIdem(), // ONCE per submission; retries reuse it
     };
-    if (!acta.acta || !acta.mesa || !acta.puesto || !acta.municipio) {
-      setErrorForm("Faltan acta, mesa, puesto o municipio.");
+    if (!sheet.code || !sheet.table || !sheet.station || !sheet.municipality) {
+      setFormError(es.form.missing);
       return;
     }
-    await motor.current?.encolar(acta, foto);
-    setBorrador(borradorVacio());
-    setFoto(null);
-    setHashFoto("");
+    await engine.current?.enqueue(sheet, photo);
+    setDraft(emptyDraft());
+    setPhoto(null);
+    setPhotoHash("");
   };
 
-  const corregir = (r: RegistroCola): void => {
-    // Corrección: mismo acta, versión + 1, idem NUEVO. Pueden convivir versiones.
-    setBorrador({
-      acta: r.acta.acta,
-      mesa: String(r.acta.mesa),
-      puesto: String(r.acta.puesto),
-      municipio: String(r.acta.municipio),
-      version: String(r.acta.version + 1),
-      votos: Object.fromEntries(CANDIDATOS.map((c) => [c, String(r.acta.votos[c] ?? "")])),
-      sufragantes: String(r.acta.sufragantes),
+  const startCorrection = (item: QueueView[number]): void => {
+    // Correction: same record, version + 1, NEW idem. Versions may coexist.
+    setDraft({
+      code: item.sheet.code,
+      table: String(item.sheet.table),
+      station: String(item.sheet.station),
+      municipality: String(item.sheet.municipality),
+      version: String(item.sheet.version + 1),
+      votes: Object.fromEntries(CANDIDATES.map((c) => [c, String(item.sheet.votes[c] ?? "")])),
+      voters: String(item.sheet.voters),
     });
     window.scrollTo({ top: 0 });
   };
@@ -138,101 +135,96 @@ export function App(): JSX.Element {
   return (
     <>
       <header className="topbar">
-        <strong>Jurado</strong>
-        <span className="quien mono">{sesion.usuario}</span>
-        <span className={`pill ${conexion === "abierto" ? "live" : conexion === "en-espera" ? "warn" : "neutral"}`}>
-          {conexion === "abierto" ? "en vivo" : conexion === "en-espera" ? "en espera" : "reconectando…"}
+        <strong>{es.brand}</strong>
+        <span className="who mono">{session.user}</span>
+        <span className={`pill ${connection === "open" ? "live" : connection === "on-hold" ? "warn" : "neutral"}`}>
+          {connection === "open" ? es.header.live : connection === "on-hold" ? es.header.onHold : es.header.reconnecting}
         </span>
-        <button className="texto" type="button" onClick={() => { motor.current?.detener(); cerrarSesion(); setSesion(null); }}>
-          Salir
+        <button className="btn-text" type="button" onClick={() => { engine.current?.stop(); signOut(); setSession(null); }}>
+          {es.header.signOut}
         </button>
       </header>
       <main className="col">
-        <h1>Transmitir acta</h1>
-        <p className="sub">
-          El acta queda guardada en este teléfono antes de enviarse. Sin confirmación no hay registro:
-          si se corta la red, se reintenta sola. Instancia {instancia}.
-        </p>
-        {aviso && <p className="aviso" role="status">{aviso}</p>}
-        <section className="card" aria-label="Formulario del acta">
-          <h2>Acta {borrador.version !== "1" && <span className="pill warn">corrección v{borrador.version}</span>}</h2>
-          <form onSubmit={(e) => void enviar(e)}>
-            <div className="rejilla">
+        <h1>{es.intro.title}</h1>
+        <p className="sub">{es.intro.sub(instance)}</p>
+        {notice && <p className="notice" role="status">{notice}</p>}
+        <section className="card" aria-label={es.form.title}>
+          <h2>{es.form.title} {draft.version !== "1" && <span className="pill warn">{es.form.correctionBadge(draft.version)}</span>}</h2>
+          <form onSubmit={(e) => void submit(e)}>
+            <div className="form-grid">
               <span>
-                <label className="campo" htmlFor="f-acta">Acta</label>
-                <input id="f-acta" className="mono" value={borrador.acta} onChange={(e) => setBorrador({ ...borrador, acta: e.target.value })} placeholder="E14-176-0042-03" />
+                <label className="field" htmlFor="f-code">{es.form.record}</label>
+                <input id="f-code" className="mono" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} placeholder={es.form.recordPlaceholder} />
               </span>
               <span>
-                <label className="campo" htmlFor="f-version">Versión</label>
-                <input id="f-version" className="mono" inputMode="numeric" value={borrador.version} onChange={(e) => setBorrador({ ...borrador, version: e.target.value })} />
+                <label className="field" htmlFor="f-version">{es.form.version}</label>
+                <input id="f-version" className="mono" inputMode="numeric" value={draft.version} onChange={(e) => setDraft({ ...draft, version: e.target.value })} />
               </span>
               <span>
-                <label className="campo" htmlFor="f-mesa">Mesa</label>
-                <input id="f-mesa" className="mono" inputMode="numeric" value={borrador.mesa} onChange={(e) => setBorrador({ ...borrador, mesa: e.target.value })} />
+                <label className="field" htmlFor="f-table">{es.form.table}</label>
+                <input id="f-table" className="mono" inputMode="numeric" value={draft.table} onChange={(e) => setDraft({ ...draft, table: e.target.value })} />
               </span>
               <span>
-                <label className="campo" htmlFor="f-puesto">Puesto</label>
-                <input id="f-puesto" className="mono" inputMode="numeric" value={borrador.puesto} onChange={(e) => setBorrador({ ...borrador, puesto: e.target.value })} />
+                <label className="field" htmlFor="f-station">{es.form.station}</label>
+                <input id="f-station" className="mono" inputMode="numeric" value={draft.station} onChange={(e) => setDraft({ ...draft, station: e.target.value })} />
               </span>
               <span>
-                <label className="campo" htmlFor="f-mun">Municipio</label>
-                <input id="f-mun" className="mono" inputMode="numeric" value={borrador.municipio} onChange={(e) => setBorrador({ ...borrador, municipio: e.target.value })} />
+                <label className="field" htmlFor="f-municipality">{es.form.municipality}</label>
+                <input id="f-municipality" className="mono" inputMode="numeric" value={draft.municipality} onChange={(e) => setDraft({ ...draft, municipality: e.target.value })} />
               </span>
               <span>
-                <label className="campo" htmlFor="f-suf">Sufragantes</label>
-                <input id="f-suf" className="mono" inputMode="numeric" value={borrador.sufragantes} onChange={(e) => setBorrador({ ...borrador, sufragantes: e.target.value })} />
+                <label className="field" htmlFor="f-voters">{es.form.voters}</label>
+                <input id="f-voters" className="mono" inputMode="numeric" value={draft.voters} onChange={(e) => setDraft({ ...draft, voters: e.target.value })} />
               </span>
             </div>
-            <h2 style={{ marginTop: 16 }}>Votos</h2>
-            <div className="rejilla">
-              {CANDIDATOS.map((c) => (
+            <h2 style={{ marginTop: 16 }}>{es.form.votesTitle}</h2>
+            <div className="form-grid">
+              {CANDIDATES.map((c) => (
                 <span key={c}>
-                  <label className="campo" htmlFor={`v-${c}`}>{c}</label>
-                  <input id={`v-${c}`} className="mono" inputMode="numeric" value={borrador.votos[c]} onChange={(e) => setBorrador({ ...borrador, votos: { ...borrador.votos, [c]: e.target.value } })} />
+                  <label className="field" htmlFor={`v-${c}`}>{c}</label>
+                  <input id={`v-${c}`} className="mono" inputMode="numeric" value={draft.votes[c]} onChange={(e) => setDraft({ ...draft, votes: { ...draft.votes, [c]: e.target.value } })} />
                 </span>
               ))}
             </div>
-            {!cuadra && borrador.sufragantes !== "" && (
-              <p className="alerta" role="alert">
-                La suma de votos no coincide con sufragantes: el acta irá a verificación humana. Puedes enviarla igual.
-              </p>
+            {!balanced && draft.voters !== "" && (
+              <p className="alert" role="alert">{es.form.mismatch}</p>
             )}
-            <label className="campo" htmlFor="f-foto">Foto del acta</label>
+            <label className="field" htmlFor="f-photo">{es.form.photo}</label>
             <input
-              id="f-foto"
+              id="f-photo"
               type="file"
               accept="image/*"
               capture="environment"
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null;
-                setFoto(f);
+                setPhoto(f);
                 if (f) {
-                  void f.arrayBuffer().then((b) => sha256Hex(b).then(setHashFoto));
+                  void f.arrayBuffer().then((b) => sha256Hex(b).then(setPhotoHash));
                 } else {
-                  setHashFoto("");
+                  setPhotoHash("");
                 }
               }}
             />
-            {hashFoto !== "" && <p className="hash mono">sha256 {hashFoto.slice(0, 32)}… (se conserva en el teléfono)</p>}
-            {errorForm && <p className="alerta" role="alert">{errorForm}</p>}
-            <button className="primario" type="submit">Guardar y enviar</button>
+            {photoHash !== "" && <p className="hash mono">{es.form.photoHash(photoHash)}</p>}
+            {formError && <p className="alert" role="alert">{formError}</p>}
+            <button className="btn-primary" type="submit">{es.form.submit}</button>
           </form>
         </section>
-        <section className="card" aria-label="Cola de envío">
-          <h2>En este teléfono ({cola.length})</h2>
-          {cola.length === 0 && <p className="meta">Sin actas pendientes. Todo lo enviado y confirmado sale de aquí.</p>}
-          {cola.map((r) => {
-            const p = estadoPildora(r);
+        <section className="card" aria-label={es.queue.title(queue.length)}>
+          <h2>{es.queue.title(queue.length)}</h2>
+          {queue.length === 0 && <p className="meta">{es.queue.empty}</p>}
+          {queue.map((item) => {
+            const p = pillForStatus(item);
             return (
-              <div className="fila-cola" key={r.idem}>
-                <span className="datos">
-                  <span className="acta-id">{r.acta.acta} · v{r.acta.version}</span>
+              <div className="queue-row" key={item.idem}>
+                <span className="row-data">
+                  <span className="record-id">{item.sheet.code} · v{item.sheet.version}</span>
                   <br />
-                  <span className={`pill ${p.clase}`}>{p.texto}</span>{" "}
-                  <span className="detalle">intentos {r.intentos}</span>
+                  <span className={`pill ${p.tone}`}>{p.text}</span>{" "}
+                  <span className="row-detail">{es.queue.attempts(item.attempts)}</span>
                 </span>
-                <span className="accion">
-                  <button className="secundario" type="button" onClick={() => corregir(r)}>Corregir</button>
+                <span className="row-action">
+                  <button className="btn-secondary" type="button" onClick={() => startCorrection(item)}>{es.queue.correct}</button>
                 </span>
               </div>
             );
@@ -243,30 +235,30 @@ export function App(): JSX.Element {
   );
 }
 
-function Acceso({ onEntrar }: { onEntrar: (s: Sesion) => void }): JSX.Element {
-  const [usuario, setUsuario] = useState("JUR-88134");
-  const [clave, setClave] = useState("");
+function SignIn({ onEnter }: { onEnter: (s: Session) => void }): JSX.Element {
+  const [user, setUser] = useState("JUR-88134");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   return (
     <main className="col">
-      <h1>Ingreso de jurado</h1>
-      <p className="sub">Usa tu código JUR- y tu clave.</p>
+      <h1>{es.signIn.title}</h1>
+      <p className="sub">{es.signIn.sub}</p>
       <section className="card">
         <form
           onSubmit={(e) => {
             e.preventDefault();
             setError(null);
-            void iniciarSesion(usuario.trim(), clave).then(onEntrar).catch((err: unknown) => {
-              setError(err instanceof Error ? err.message : "No se pudo ingresar");
+            void signIn(user.trim(), password).then(onEnter).catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : es.signIn.failed);
             });
           }}
         >
-          <label className="campo" htmlFor="u">Usuario</label>
-          <input id="u" className="mono" value={usuario} onChange={(e) => setUsuario(e.target.value)} autoComplete="username" />
-          <label className="campo" htmlFor="c">Clave</label>
-          <input id="c" type="password" value={clave} onChange={(e) => setClave(e.target.value)} autoComplete="current-password" />
-          {error && <p className="alerta" role="alert">{error}</p>}
-          <button className="primario" type="submit">Ingresar</button>
+          <label className="field" htmlFor="u">{es.signIn.user}</label>
+          <input id="u" className="mono" value={user} onChange={(e) => setUser(e.target.value)} autoComplete="username" />
+          <label className="field" htmlFor="c">{es.signIn.password}</label>
+          <input id="c" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
+          {error && <p className="alert" role="alert">{error}</p>}
+          <button className="btn-primary" type="submit">{es.signIn.action}</button>
         </form>
       </section>
     </main>

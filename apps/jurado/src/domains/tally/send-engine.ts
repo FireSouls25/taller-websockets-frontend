@@ -1,178 +1,202 @@
-// Motor de envío: WS con respaldo POST, reintento solo con backoff+jitter (RT-6).
-// - Los reintentos usan el MISMO idem (nunca se regenera).
-// - Un acta sale de la cola solo con ack definitivo; sin ack no hay confirmación.
-// - Con degradado:true los envíos quedan en espera y se avisa.
+// Send engine: WS with POST fallback, retries only with backoff+jitter (RT-6).
+// - Retries reuse the SAME idem (never regenerated).
+// - A sheet leaves the queue only on a final ack; without ack, no confirmation.
+// - With degradado:true sends wait on hold and the UI is told.
+// UI copy is injected so the domain stays text-free.
 import {
-  abrirWs,
   apiBase,
-  debeQuitarDeCola,
-  esperaBackoff,
+  backoffDelay,
+  fromWireAck,
   httpPost,
-  type Acta,
-  type ActaAck,
-  type WsCanal,
+  openWs,
+  shouldRemoveFromQueue,
+  toWireSheet,
+  type PendingStatus,
+  type TallyAck,
+  type TallyAckWire,
+  type TallySheet,
+  type TallySheetWire,
+  type WsChannel,
 } from "@preconteo/shared";
-import { guardarEnCola, listarCola, marcarEstado, quitarDeCola, type RegistroCola } from "./cola-store.js";
-import { textoDeAck } from "./ack-vista.js";
+import { listQueue, removeFromQueue, saveSubmission, updateStatus } from "./queue-store.js";
 
-export interface MotorEventos {
-  onCola: (cola: RegistroCola[]) => void;
-  onConexion: (s: "conectando" | "abierto" | "reconectando" | "en-espera") => void;
-  onAviso: (texto: string | null) => void;
+export interface EngineCopy {
+  ackNotice: (ack: TallyAck) => string;
+  degradedNotice: string;
+  recordState: (record: string, state: string) => string;
 }
+
+export interface EngineEvents {
+  onQueue: (queue: Array<{ idem: string; sheet: TallySheet; status: PendingStatus; attempts: number; lastError?: string }>) => void;
+  onConnection: (s: "connecting" | "open" | "reconnecting" | "on-hold") => void;
+  onNotice: (text: string | null) => void;
+}
+
+export type QueueView = Parameters<EngineEvents["onQueue"]>[0];
 
 function wsBase(): string {
   return apiBase().replace(/^http/, "ws");
 }
 
-const REENVIO_MS = 30_000;
+const RESEND_MS = 30_000;
 
-export class MotorEnvio {
-  private canal: WsCanal | null = null;
-  private wsAbierto = false;
-  private intento = 0;
+export class SendEngine {
+  private channel: WsChannel | null = null;
+  private wsOpen = false;
+  private attempt = 0;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private drenando = false;
-  private enEspera = false;
+  private draining = false;
+  private onHold = false;
 
   constructor(
     private token: string,
-    private ev: MotorEventos,
+    private events: EngineEvents,
+    private copy: EngineCopy,
   ) {}
 
-  arrancar(): void {
-    this.conectarWs();
-    window.addEventListener("online", this.alRecuperarRed);
-    void this.refrescar();
-    void this.drenar();
+  start(): void {
+    this.connectWs();
+    window.addEventListener("online", this.onBackOnline);
+    void this.refresh();
+    void this.drain();
   }
 
-  detener(): void {
-    window.removeEventListener("online", this.alRecuperarRed);
+  stop(): void {
+    window.removeEventListener("online", this.onBackOnline);
     if (this.timer) clearTimeout(this.timer);
-    this.canal?.cerrar();
+    this.channel?.close();
   }
 
-  /** Guarda ANTES de enviar: aunque se corte todo, el acta sobrevive. */
-  async encolar(acta: Acta, foto: Blob | null): Promise<void> {
-    await guardarEnCola({
-      idem: acta.idem,
-      acta,
-      foto,
-      estado: "guardada",
-      intentos: 0,
-      actualizadaEn: Date.now(),
+  /** Stores BEFORE sending: whatever breaks, the sheet survives. */
+  async enqueue(sheet: TallySheet, photo: Blob | null): Promise<void> {
+    await saveSubmission({
+      idem: sheet.idem,
+      sheet,
+      photo,
+      status: "stored",
+      attempts: 0,
+      updatedAt: Date.now(),
     });
-    await this.refrescar();
-    void this.drenar();
+    await this.refresh();
+    void this.drain();
   }
 
-  private alRecuperarRed = (): void => {
-    this.intento = 0;
-    void this.drenar();
+  private onBackOnline = (): void => {
+    this.attempt = 0;
+    void this.drain();
   };
 
-  private conectarWs(): void {
-    this.ev.onConexion("conectando");
-    this.canal = abrirWs(`${wsBase()}/ws/jurado?token=${encodeURIComponent(this.token)}`, {
-      onMensaje: (m) => void this.alMensaje(m),
-      onEstado: (s) => {
-        if (s === "abierto") {
-          this.wsAbierto = true;
-          this.intento = 0;
-          this.ev.onConexion(this.enEspera ? "en-espera" : "abierto");
-          void this.drenar();
-        } else if (s === "conectando") {
-          this.ev.onConexion("conectando");
+  private connectWs(): void {
+    this.events.onConnection("connecting");
+    this.channel = openWs(`${wsBase()}/ws/jurado?token=${encodeURIComponent(this.token)}`, {
+      onMessage: (m) => void this.onMessage(m),
+      onStatus: (s) => {
+        if (s === "open") {
+          this.wsOpen = true;
+          this.attempt = 0;
+          this.events.onConnection(this.onHold ? "on-hold" : "open");
+          void this.drain();
+        } else if (s === "connecting") {
+          this.events.onConnection("connecting");
         } else {
-          this.wsAbierto = false;
-          this.ev.onConexion(this.enEspera ? "en-espera" : "reconectando");
+          this.wsOpen = false;
+          this.events.onConnection(this.onHold ? "on-hold" : "reconnecting");
         }
       },
     });
   }
 
-  private async alMensaje(m: unknown): Promise<void> {
+  private async onMessage(m: unknown): Promise<void> {
     const msg = m as { t?: string };
     if (msg.t === "ack") {
-      this.intento = 0;
-      await this.alAck(m as ActaAck);
+      this.attempt = 0;
+      await this.onAck(fromWireAck(m as TallyAckWire));
       return;
     }
     if (msg.t === "estado") {
-      const degradado = (m as { degradado?: boolean }).degradado === true;
-      this.enEspera = degradado;
-      this.ev.onAviso(degradado ? "Red o sistema degradado: los envíos quedan en espera." : null);
-      this.ev.onConexion(degradado ? "en-espera" : "abierto");
-      if (!degradado) void this.drenar();
+      const degraded = (m as { degradado?: boolean }).degradado === true;
+      this.onHold = degraded;
+      this.events.onNotice(degraded ? this.copy.degradedNotice : null);
+      this.events.onConnection(degraded ? "on-hold" : "open");
+      if (!degraded) void this.drain();
       return;
     }
     if (msg.t === "estado_acta") {
       const info = m as { acta: string; estado: string };
-      this.ev.onAviso(`${info.acta}: estado ${info.estado}`);
-      await this.refrescar();
+      this.events.onNotice(this.copy.recordState(info.acta, info.estado));
+      await this.refresh();
     }
   }
 
-  private async alAck(ack: ActaAck): Promise<void> {
-    if (debeQuitarDeCola(ack)) {
-      await quitarDeCola(ack.idem);
+  private async onAck(ack: TallyAck): Promise<void> {
+    if (shouldRemoveFromQueue(ack)) {
+      await removeFromQueue(ack.idem);
     } else {
-      await marcarEstado(ack.idem, { estado: "enviando", ultimoError: textoDeAck(ack) });
+      await updateStatus(ack.idem, { status: "sending", lastError: this.copy.ackNotice(ack) });
     }
-    this.ev.onAviso(`${ack.acta}: ${textoDeAck(ack)}`);
-    await this.refrescar();
-    void this.drenar();
+    this.events.onNotice(this.copy.ackNotice(ack));
+    await this.refresh();
+    void this.drain();
   }
 
-  private async refrescar(): Promise<void> {
-    this.ev.onCola(await listarCola());
+  private async refresh(): Promise<void> {
+    const queue = await listQueue();
+    this.events.onQueue(
+      queue.map((r) => ({
+        idem: r.idem,
+        sheet: r.sheet,
+        status: r.status,
+        attempts: r.attempts,
+        ...(r.lastError !== undefined ? { lastError: r.lastError } : {}),
+      })),
+    );
   }
 
-  private programarReintento(): void {
+  private scheduleRetry(): void {
     if (this.timer) return;
-    const ms = esperaBackoff(this.intento);
-    this.intento += 1;
+    const ms = backoffDelay(this.attempt);
+    this.attempt += 1;
     this.timer = setTimeout(() => {
       this.timer = null;
-      void this.drenar();
+      void this.drain();
     }, ms);
   }
 
-  private async drenar(): Promise<void> {
-    if (this.drenando || this.enEspera) return;
-    this.drenando = true;
+  private async drain(): Promise<void> {
+    if (this.draining || this.onHold) return;
+    this.draining = true;
     try {
-      const cola = await listarCola();
-      const pendientes = cola.filter(
+      const queue = await listQueue();
+      const pending = queue.filter(
         (r) =>
-          r.estado === "guardada" ||
-          (r.estado === "enviando" && Date.now() - r.actualizadaEn > REENVIO_MS),
+          r.status === "stored" || (r.status === "sending" && Date.now() - r.updatedAt > RESEND_MS),
       );
-      if (pendientes.length === 0) return;
-      for (const r of pendientes) {
-        await marcarEstado(r.idem, { estado: "enviando", intentos: r.intentos + 1 });
+      if (pending.length === 0) return;
+      for (const r of pending) {
+        await updateStatus(r.idem, { status: "sending", attempts: r.attempts + 1 });
         try {
-          if (this.wsAbierto) {
-            // Canal principal: el ack real llega a alMensaje y decide la cola.
-            this.canal?.enviar({ t: "acta", data: r.acta });
+          if (this.wsOpen) {
+            // Main channel: the real ack arrives at onMessage and decides the queue.
+            this.channel?.send({ t: "acta", data: toWireSheet(r.sheet) });
           } else {
-            // Respaldo POST con el mismo cuerpo y la misma respuesta del acta.
-            const ack = await httpPost<ActaAck, Acta>("/api/actas", r.acta, { token: this.token });
-            await this.alAck(ack);
+            // POST fallback with the same body; its response is the ack.
+            const wire = await httpPost<TallyAckWire, TallySheetWire>("/api/actas", toWireSheet(r.sheet), {
+              token: this.token,
+            });
+            await this.onAck(fromWireAck(wire));
           }
         } catch (e) {
-          // Sin red: el acta queda en cola; el reintento es automático.
-          await marcarEstado(r.idem, {
-            ultimoError: e instanceof Error ? e.message : "sin conexión",
+          // Offline: the sheet stays queued; retry is automatic.
+          await updateStatus(r.idem, {
+            lastError: e instanceof Error ? e.message : "offline",
           });
         }
       }
-      await this.refrescar();
-      const quedan = (await listarCola()).length;
-      if (quedan > 0) this.programarReintento();
+      await this.refresh();
+      const left = (await listQueue()).length;
+      if (left > 0) this.scheduleRetry();
     } finally {
-      this.drenando = false;
+      this.draining = false;
     }
   }
 }

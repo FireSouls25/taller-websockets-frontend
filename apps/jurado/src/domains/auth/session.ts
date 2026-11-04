@@ -1,38 +1,40 @@
-// Dominio auth (jurado): sesión con token del login REST.
-import { httpPost, rolDeUsuario, type LoginRespuesta } from "@preconteo/shared";
+// Juror auth domain: REST login session.
+import { fromWireLogin, httpPost, roleOfUser } from "@preconteo/shared";
+import { es } from "../../i18n/es.js";
 
-const CLAVE = "jurado.sesion";
+const KEY = "jurado.sesion";
 
-export interface Sesion {
+export interface Session {
   token: string;
-  usuario: string;
+  user: string;
 }
 
-export function leerSesion(): Sesion | null {
+export function readSession(): Session | null {
   try {
-    const raw = localStorage.getItem(CLAVE);
+    const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const s = JSON.parse(raw) as Sesion;
-    if (typeof s.token !== "string" || typeof s.usuario !== "string") return null;
+    const s = JSON.parse(raw) as Session;
+    if (typeof s.token !== "string" || typeof s.user !== "string") return null;
     return s;
   } catch {
     return null;
   }
 }
 
-export async function iniciarSesion(usuario: string, clave: string): Promise<Sesion> {
-  const r = await httpPost<LoginRespuesta, { usuario: string; clave: string }>("/api/auth/login", {
-    usuario,
-    clave,
-  });
-  if (rolDeUsuario(r.usuario) !== "jurado") {
-    throw new Error(`La cuenta ${r.usuario} no es de jurado`);
+export async function signIn(user: string, password: string): Promise<Session> {
+  const wire = await httpPost<{ token: string; rol: string; usuario: string }, { usuario: string; clave: string }>(
+    "/api/auth/login",
+    { usuario: user, clave: password },
+  );
+  const r = fromWireLogin(wire);
+  if (roleOfUser(r.user) !== "juror") {
+    throw new Error(es.signIn.notJuror(r.user));
   }
-  const s: Sesion = { token: r.token, usuario: r.usuario };
-  localStorage.setItem(CLAVE, JSON.stringify(s));
+  const s: Session = { token: r.token, user: r.user };
+  localStorage.setItem(KEY, JSON.stringify(s));
   return s;
 }
 
-export function cerrarSesion(): void {
-  localStorage.removeItem(CLAVE);
+export function signOut(): void {
+  localStorage.removeItem(KEY);
 }

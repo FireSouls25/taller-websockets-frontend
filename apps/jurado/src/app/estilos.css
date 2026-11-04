@@ -28,35 +28,35 @@ body {
 .col { max-width: 560px; margin: 0 auto; padding: 0 16px 64px; }
 .topbar { display: flex; align-items: center; gap: 8px; min-height: 48px; max-width: 560px; margin: 0 auto; padding: 0 16px; }
 .topbar strong { font-size: 15px; }
-.topbar .quien { color: var(--muted); }
+.topbar .who { color: var(--muted); }
 .topbar button { margin-left: auto; }
 h1 { font-size: 24px; margin: 24px 0 4px; }
 .sub { color: var(--muted); margin: 0 0 16px; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card); padding: 16px; margin-top: 12px; }
 .card h2 { font-size: 16px; margin: 0 0 8px; }
-label.campo { display: block; font-weight: 500; margin: 12px 0 4px; }
+label.field { display: block; font-weight: 500; margin: 12px 0 4px; }
 input, select {
   width: 100%; min-height: 44px; border: 1px solid var(--control);
   border-radius: var(--radius-control); background: #fff; color: var(--text);
   font: inherit; padding: 0 10px;
 }
-.rejilla { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
-button.primario {
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+button.btn-primary {
   width: 100%; min-height: 44px; margin-top: 16px; border: none;
   border-radius: var(--radius-control); background: var(--primary); color: #fff;
   font: inherit; font-weight: 500; cursor: pointer;
 }
-button.secundario {
+button.btn-secondary {
   min-height: 44px; border: 1px solid var(--control); border-radius: var(--radius-control);
   background: #fff; font: inherit; padding: 0 12px; cursor: pointer;
 }
-button.texto { background: none; border: none; text-decoration: underline; padding: 0; font: inherit; cursor: pointer; }
-.alerta {
+button.btn-text { background: none; border: none; text-decoration: underline; padding: 0; font: inherit; cursor: pointer; }
+.alert {
   background: var(--pill-warning-bg); border: 1px solid #fde68a;
   color: var(--pill-warning-ink); border-radius: var(--radius-control);
   padding: 8px 12px; font-size: 12px; margin-top: 12px;
 }
-.aviso {
+.notice {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-control); padding: 8px 12px; margin-top: 12px;
 }
@@ -68,11 +68,11 @@ button.texto { background: none; border: none; text-decoration: underline; paddi
 .pill.neutral { background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
 .pill.warn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
 .pill.bad { background: var(--pill-negative-bg); color: var(--pill-negative-ink); }
-.fila-cola { border-top: 1px solid var(--rule); padding: 10px 0; display: flex; gap: 10px; align-items: flex-start; }
-.fila-cola:first-of-type { border-top: none; }
-.fila-cola .datos { min-width: 0; }
-.fila-cola .acta-id { font-family: var(--mono); font-size: 13px; }
-.fila-cola .detalle { color: var(--muted); font-size: 12px; }
-.fila-cola .accion { margin-left: auto; flex: none; }
+.queue-row { border-top: 1px solid var(--rule); padding: 10px 0; display: flex; gap: 10px; align-items: flex-start; }
+.queue-row:first-of-type { border-top: none; }
+.queue-row .row-data { min-width: 0; }
+.queue-row .record-id { font-family: var(--mono); font-size: 13px; }
+.queue-row .row-detail { color: var(--muted); font-size: 12px; }
+.queue-row .row-action { margin-left: auto; flex: none; }
 .meta { color: var(--muted); font-size: 12px; }
 .hash { color: var(--faint); font-size: 12px; word-break: break-all; }
