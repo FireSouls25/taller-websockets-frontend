@@ -1,7 +1,7 @@
-/* Preconteo público · achromatic-ledger (seed 831338482).
-   Cara: fondo papel de acta #f4f3f1; cifras en Geist Mono (decisión del estilo:
-   las cuentas se leen como columnas de libro); el único matiz #1d5fbf marca
-   la candidatura que lidera. Suma de rejilla: 744 + 24 + 384 = 1152. */
+/* Public results · achromatic-ledger (seed 831338482).
+   Face: ballot-paper ground #f4f3f1; figures in Geist Mono (the style's
+   decision: counts read as ledger columns); the single hue #1d5fbf marks
+   the leading candidacy. Grid sum: 744 + 24 + 384 = 1152. */
 :root {
   --ground: #f4f3f1;
   --surface: #ffffff;
@@ -41,7 +41,7 @@ body {
 .faint { color: var(--faint); }
 .col { max-width: 1152px; margin: 0 auto; padding: 0 var(--pad); }
 
-/* Barra superior sin sidebar: marca, nombre y alcance a la izquierda. */
+/* Top bar without sidebar: brand, name and scope on the left. */
 .topbar { background: var(--ground); }
 .topbar-in { display: flex; align-items: center; gap: 10px; height: 48px; }
 .wordmark { font-size: 15px; }
@@ -55,9 +55,9 @@ body {
 .pill.neutral { background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
 .pill.live { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
 .pill.warn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
-#instancia { font-size: var(--fs-small); }
+#instance-badge { font-size: var(--fs-small); }
 
-/* Título y ámbito. */
+/* Title and scope. */
 .title-row { padding: 36px 0 0; }
 h1 { font-size: var(--fs-title); font-weight: 700; margin: 0; }
 .sub { color: var(--muted); font-size: var(--fs-body); margin: 4px 0 0; }
@@ -70,7 +70,7 @@ select, input {
   font: inherit; padding: 0 10px;
 }
 
-/* Franja de indicadores: un contenedor dividido por reglas. */
+/* Indicator strip: one container split by rules. */
 .kpis {
   display: grid; grid-template-columns: repeat(4, 1fr);
   background: var(--surface); border: 1px solid var(--border);
@@ -81,7 +81,7 @@ select, input {
 .k-label { display: block; font-size: var(--fs-body); color: var(--muted); }
 .k-val { display: block; font-size: var(--fs-kpi); font-weight: 500; margin-top: 2px; white-space: nowrap; }
 
-/* Rejilla principal + riel. */
+/* Main grid + rail. */
 .grid { display: grid; grid-template-columns: 1fr 384px; gap: 24px; margin-top: 16px; padding-bottom: 64px; }
 .main-col { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 .card {
@@ -94,45 +94,45 @@ select, input {
 .rail-h:first-child { margin-top: 0; }
 .rail .card { margin: 0; }
 
-/* Filas-urna: el fondo de la fila es la barra, proporcional al mayor. */
-.filas-urna { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.filas-urna li {
+/* Ballot rows: the row fill is the bar, proportional to the largest. */
+.ballot-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.ballot-rows li {
   position: relative; height: 44px; border-radius: 8px; overflow: hidden;
   display: flex; align-items: center; gap: 12px; padding: 0 12px;
 }
-.filas-urna .relleno { position: absolute; inset: 0; width: 56px; background: var(--chart-1); opacity: 0.08; }
-.filas-urna li.lider .relleno { background: var(--chart-3); opacity: 0.16; }
-.filas-urna .nombre { position: relative; font-weight: 500; }
-.filas-urna .votos { position: relative; margin-left: auto; text-align: right; }
-.filas-urna li.lider .votos { color: var(--chart-3); }
+.ballot-rows .fill { position: absolute; inset: 0; width: 56px; background: var(--chart-1); opacity: 0.08; }
+.ballot-rows li.leader .fill { background: var(--chart-3); opacity: 0.16; }
+.ballot-rows .name { position: relative; font-weight: 500; }
+.ballot-rows .votes { position: relative; margin-left: auto; text-align: right; }
+.ballot-rows li.leader .votes { color: var(--chart-3); }
 
-/* Correcciones: líneas de libro, acta en mono, motivo en pastilla pálida. */
-.corr { border-top: 1px solid var(--rule); padding: 8px 0; font-size: var(--fs-body); }
-.corr:first-child { border-top: none; padding-top: 0; }
-.corr .acta { font-family: var(--mono); font-size: 13px; }
-.corr .motivo {
+/* Corrections: ledger lines, record id in mono, reason in a pale pill. */
+.correction { border-top: 1px solid var(--rule); padding: 8px 0; font-size: var(--fs-body); }
+.correction:first-child { border-top: none; padding-top: 0; }
+.correction .record { font-family: var(--mono); font-size: 13px; }
+.correction .reason {
   display: inline-block; height: 20px; line-height: 20px; padding: 0 8px;
   border-radius: 999px; font-size: var(--fs-small); font-weight: 500;
   background: var(--pill-warning-bg); color: var(--pill-warning-ink);
   border: 1px solid #fde68a; margin-left: 8px;
 }
-.corr time { color: var(--faint); font-size: var(--fs-small); margin-left: 8px; }
-.vacio { color: var(--muted); margin: 0; }
+.correction time { color: var(--faint); font-size: var(--fs-small); margin-left: 8px; }
+.empty { color: var(--muted); margin: 0; }
 .dash { color: var(--faint); }
 
-/* Mesa y conexión. */
-.mesa-form label { display: block; font-size: var(--fs-body); font-weight: 500; margin-bottom: 8px; }
-.mesa-join { display: flex; gap: 8px; }
-.mesa-join input { width: 120px; }
+/* Table lookup and connection. */
+.table-form label { display: block; font-size: var(--fs-body); font-weight: 500; margin-bottom: 8px; }
+.table-join { display: flex; gap: 8px; }
+.table-join input { width: 120px; }
 button {
   height: var(--control-height); padding: 0 16px; border: none;
   border-radius: var(--radius-control); background: var(--primary); color: #fff;
   font: inherit; cursor: pointer;
 }
-.mesa-detalle { margin-top: 12px; font-size: var(--fs-body); }
-.mesa-detalle dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; }
-.mesa-detalle dt { color: var(--muted); }
-.mesa-detalle dd { margin: 0; text-align: right; }
+.table-detail { margin-top: 12px; font-size: var(--fs-body); }
+.table-detail dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; }
+.table-detail dt { color: var(--muted); }
+.table-detail dd { margin: 0; text-align: right; }
 .notice {
   background: var(--pill-warning-bg); border: 1px solid #fde68a;
   color: var(--pill-warning-ink); border-radius: var(--radius-control);
@@ -140,12 +140,12 @@ button {
 }
 .meta { color: var(--muted); font-size: var(--fs-small); margin: 0; }
 .error { color: var(--pill-negative-ink); }
-button.texto { background: none; color: var(--text); text-decoration: underline; padding: 0; height: auto; }
+button.inline-action { background: none; color: var(--text); text-decoration: underline; padding: 0; height: auto; }
 
-/* Carga: barras grises al tamaño final, sin brillo. */
-.carga .barra { height: 44px; border-radius: 8px; background: var(--raised); }
+/* Loading: grey bars at final size, no shimmer. */
+.loading .bar { height: 44px; border-radius: 8px; background: var(--raised); }
 
-/* Teléfono: el riel baja, los indicadores en 2 columnas, la barra se pliega. */
+/* Phone: the rail drops below, indicators in 2 columns, the bar folds. */
 @media (max-width: 1100px) {
   .col { padding: 0 16px; }
   .grid { grid-template-columns: 1fr; }
@@ -153,5 +153,5 @@ button.texto { background: none; color: var(--text); text-decoration: underline;
   .kpi:nth-child(3) { border-left: none; border-top: 1px solid var(--rule); }
   .kpi:nth-child(4) { border-top: 1px solid var(--rule); }
   .crumb { display: none; }
-  #instancia { display: none; }
+  #instance-badge { display: none; }
 }

@@ -15,18 +15,18 @@
   <body>
     <header class="topbar" data-ui>
       <div class="col topbar-in">
-        <span class="marca" aria-hidden="true">
+        <span class="brand-mark" aria-hidden="true">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <rect x="3" y="7" width="14" height="10" rx="1.5" stroke="#0a0a0a" stroke-width="1.5" />
             <path d="M7 7l3-4 3 4" stroke="#0a0a0a" stroke-width="1.5" stroke-linejoin="round" />
             <path d="M10 3v4" stroke="#1d5fbf" stroke-width="1.5" stroke-linecap="round" />
           </svg>
         </span>
-        <strong class="wordmark">Preconteo</strong>
-        <span class="crumb" id="crumb">Departamento</span>
+        <strong class="wordmark" id="brand">Preconteo</strong>
+        <span class="crumb" id="scope-crumb">Departamento</span>
         <span class="top-right">
-          <span id="estado-conexion" class="pill neutral" role="status">conectando…</span>
-          <span id="instancia" class="mono faint" title="Instancia del backend que sirve esta conexión">instancia …</span>
+          <span id="connection-status" class="pill neutral" role="status">conectando…</span>
+          <span id="instance-badge" class="mono faint" title="Instancia del backend que sirve esta conexión">instancia …</span>
         </span>
       </div>
     </header>
@@ -34,57 +34,57 @@
     <main class="col">
       <div class="title-row">
         <div>
-          <h1>Resultados del preconteo</h1>
-          <p class="sub" id="frescura">Informe rápido, no oficial. Esperando datos…</p>
+          <h1 id="app-title">Resultados del preconteo</h1>
+          <p class="sub" id="freshness">Informe rápido, no oficial. Esperando datos…</p>
         </div>
       </div>
 
       <div class="scope-row">
-        <label class="scope">Ámbito
-          <select id="topic">
+        <label class="scope"><span id="scope-label">Ámbito</span>
+          <select id="scope-select">
             <option value="dep">Departamento</option>
             <option value="mun:11" selected>Municipio 11</option>
             <option value="puesto:176">Puesto 176</option>
           </select>
         </label>
-        <p class="scope-note">Dos conexiones en vivo: departamento y ámbito elegido.</p>
+        <p class="scope-note" id="scope-note">Dos conexiones en vivo: departamento y ámbito elegido.</p>
       </div>
 
       <section class="kpis" aria-label="Avance del preconteo">
-        <div class="kpi"><span class="k-label">Mesas informadas</span><span class="k-val mono num" id="k-mesas">…</span></div>
-        <div class="kpi"><span class="k-label">Avance</span><span class="k-val mono num" id="k-avance">…</span></div>
-        <div class="kpi"><span class="k-label">Sufragantes</span><span class="k-val mono num" id="k-suf">…</span></div>
-        <div class="kpi"><span class="k-label">Actualizado</span><span class="k-val mono num" id="k-hora">…</span></div>
+        <div class="kpi"><span class="k-label" id="k-reported-label">Mesas informadas</span><span class="k-val mono num" id="k-reported">…</span></div>
+        <div class="kpi"><span class="k-label" id="k-progress-label">Avance</span><span class="k-val mono num" id="k-progress">…</span></div>
+        <div class="kpi"><span class="k-label" id="k-voters-label">Sufragantes</span><span class="k-val mono num" id="k-voters">…</span></div>
+        <div class="kpi"><span class="k-label" id="k-time-label">Actualizado</span><span class="k-val mono num" id="k-time">…</span></div>
       </section>
 
       <div class="grid">
         <div class="main-col">
           <section class="card" aria-label="Votos por candidatura">
-            <h2>Votos por candidatura</h2>
-            <p class="cap">Acumulado del ámbito · valores absolutos en cada envío</p>
-            <ol id="ranking" class="filas-urna"></ol>
+            <h2 id="ranking-title">Votos por candidatura</h2>
+            <p class="cap" id="ranking-caption">Acumulado del ámbito · valores absolutos en cada envío</p>
+            <ol id="ranking" class="ballot-rows"></ol>
           </section>
         </div>
         <aside class="rail">
-          <h2 class="rail-h">Correcciones</h2>
+          <h2 class="rail-h" id="corrections-title">Correcciones</h2>
           <section class="card" aria-label="Correcciones explicadas">
-            <div id="correcciones"></div>
+            <div id="corrections"></div>
           </section>
-          <h2 class="rail-h">Mesa</h2>
+          <h2 class="rail-h" id="table-title">Mesa</h2>
           <section class="card" aria-label="Detalle de mesa">
-            <form id="mesa-form" class="mesa-form">
-              <label for="mesa-id">Número de mesa</label>
-              <span class="mesa-join">
-                <input id="mesa-id" class="mono" inputmode="numeric" placeholder="4201" />
-                <button type="submit">Ver</button>
+            <form id="table-form" class="table-form">
+              <label for="table-id" id="table-label">Número de mesa</label>
+              <span class="table-join">
+                <input id="table-id" class="mono" inputmode="numeric" placeholder="4201" />
+                <button type="submit" id="table-action">Ver</button>
               </span>
             </form>
-            <div id="mesa-detalle" class="mesa-detalle"><span class="dash">…</span></div>
+            <div id="table-detail" class="table-detail"><span class="dash">…</span></div>
           </section>
-          <h2 class="rail-h">Conexión</h2>
+          <h2 class="rail-h" id="connection-title">Conexión</h2>
           <section class="card" aria-label="Estado de la conexión">
-            <p id="pausa" class="notice" hidden>Datos en pausa, última actualización <span id="pausa-hora" class="mono num">…</span></p>
-            <p class="meta">Reconexión con retroceso exponencial y reanudación desde el último mensaje. <span id="inp" class="mono num">INP …</span></p>
+            <p id="connection-paused" class="notice" hidden>Datos en pausa, última actualización <span id="paused-at" class="mono num">…</span></p>
+            <p class="meta"><span id="connection-note">Reconexión con retroceso exponencial y reanudación desde el último mensaje.</span> <span id="inp-note" class="mono num">INP …</span></p>
           </section>
         </aside>
       </div>

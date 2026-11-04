@@ -59,7 +59,7 @@ interface CorrectionWire {
   ts: number;
 }
 
-interface SnapshotWire {
+export interface SnapshotWire {
   seq: number;
   topic: Topic;
   ts: number;
@@ -72,7 +72,7 @@ interface SnapshotWire {
   corr?: CorrectionWire[];
 }
 
-interface DeltaWire {
+export interface DeltaWire {
   seq: number;
   topic: Topic;
   ts: number;
