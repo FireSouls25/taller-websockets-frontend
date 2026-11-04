@@ -44,5 +44,6 @@ npm test
 
 ## Deploy (RT-10)
 
-4 proyectos Cloudflare Pages, uno por `apps/*`. `VITE_API_URL` = URL del balanceador.
+4 proyectos Cloudflare Pages, uno por `apps/*`. Ver `deploy/cloudflare.md`
+(proyectos, `VITE_API_URL`, `_headers`/`_redirects` y lista de `CORS_ORIGIN`).
 Pasar los 4 dominios `*.pages.dev` al backend para `CORS_ORIGIN`.
