@@ -1,0 +1,42 @@
+/* Ops · mismos tokens del producto. */
+:root {
+  --ground: #f4f3f1;
+  --surface: #ffffff;
+  --border: #e6e6e6;
+  --rule: #f0f0f0;
+  --control: #d4d4d4;
+  --text: #0a0a0a;
+  --muted: #5f6368;
+  --font: "Geist", Inter, system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--ground); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 20px; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.col { max-width: 1152px; margin: 0 auto; padding: 0 24px 64px; }
+.topbar { display: flex; align-items: center; gap: 10px; min-height: 48px; max-width: 1152px; margin: 0 auto; padding: 0 24px; }
+.topbar strong { font-size: 15px; }
+.topbar .meta { margin-left: auto; color: var(--muted); font-size: 12px; }
+h1 { font-size: 24px; margin: 24px 0 4px; }
+.sub { color: var(--muted); margin: 0 0 16px; }
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-top: 16px; }
+.card h2 { font-size: 16px; margin: 0 0 8px; }
+.cap { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
+.pill { display: inline-block; height: 20px; line-height: 20px; padding: 0 8px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.pill.live { background: #dcfae5; color: #04250e; }
+.pill.warn { background: #fffbeb; color: #92400e; }
+.meta { color: var(--muted); font-size: 12px; }
+.kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; margin: 0; }
+.kv dt { color: var(--muted); font-size: 12px; }
+.kv dd { margin: 0; font-size: 24px; text-align: right; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 8px; text-align: left; border-bottom: 1px solid var(--rule); }
+thead th { font-size: 12px; color: var(--muted); font-weight: 400; }
+.num { text-align: right; }
+tbody th { font-weight: 500; }
+@media (max-width: 800px) {
+  .col, .topbar { padding-left: 16px; padding-right: 16px; }
+  .grid { grid-template-columns: 1fr; }
+  table { display: block; overflow-x: auto; }
+}
