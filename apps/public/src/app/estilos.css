@@ -1,0 +1,157 @@
+/* Preconteo público · achromatic-ledger (seed 831338482).
+   Cara: fondo papel de acta #f4f3f1; cifras en Geist Mono (decisión del estilo:
+   las cuentas se leen como columnas de libro); el único matiz #1d5fbf marca
+   la candidatura que lidera. Suma de rejilla: 744 + 24 + 384 = 1152. */
+:root {
+  --ground: #f4f3f1;
+  --surface: #ffffff;
+  --raised: #eeeeee;
+  --border: #e6e6e6;
+  --rule: #eceae6;
+  --control: #d4d4d4;
+  --text: #0a0a0a;
+  --muted: #5f6368;
+  --faint: #6b6b6b;
+  --primary: #141414;
+  --chart-1: #141414;
+  --chart-2: #8a8a8a;
+  --chart-3: #1d5fbf;
+  --positive: #247b50;
+  --negative: #c4242a;
+  --pill-positive-bg: #dcfae5; --pill-positive-ink: #04250e;
+  --pill-negative-bg: #ffedea; --pill-negative-ink: #831c1e;
+  --pill-warning-bg: #fffbeb; --pill-warning-ink: #92400e;
+  --pill-neutral-bg: #e9e7e2; --pill-neutral-ink: #3d3d3d;
+  --radius-card: 8px;
+  --radius-control: 6px;
+  --gap: 12px;
+  --pad: 24px;
+  --control-height: 36px;
+  --font: "Geist", Inter, system-ui, sans-serif;
+  --mono: "Geist Mono", ui-monospace, monospace;
+  --fs-title: 24px; --fs-section: 16px; --fs-kpi: 24px;
+  --fs-body: 14px; --fs-small: 12px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--ground); color: var(--text);
+  font-family: var(--font); font-size: var(--fs-body); line-height: 20px;
+}
+.mono, .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.faint { color: var(--faint); }
+.col { max-width: 1152px; margin: 0 auto; padding: 0 var(--pad); }
+
+/* Barra superior sin sidebar: marca, nombre y alcance a la izquierda. */
+.topbar { background: var(--ground); }
+.topbar-in { display: flex; align-items: center; gap: 10px; height: 48px; }
+.wordmark { font-size: 15px; }
+.crumb { color: var(--muted); font-size: var(--fs-body); }
+.crumb::before { content: "· "; }
+.top-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.pill {
+  flex: none; white-space: nowrap; height: 20px; line-height: 20px;
+  padding: 0 8px; border-radius: 999px; font-size: var(--fs-small); font-weight: 500;
+}
+.pill.neutral { background: var(--pill-neutral-bg); color: var(--pill-neutral-ink); }
+.pill.live { background: var(--pill-positive-bg); color: var(--pill-positive-ink); }
+.pill.warn { background: var(--pill-warning-bg); color: var(--pill-warning-ink); }
+#instancia { font-size: var(--fs-small); }
+
+/* Título y ámbito. */
+.title-row { padding: 36px 0 0; }
+h1 { font-size: var(--fs-title); font-weight: 700; margin: 0; }
+.sub { color: var(--muted); font-size: var(--fs-body); margin: 4px 0 0; }
+.scope-row { display: flex; align-items: center; gap: 16px; margin: 16px 0 0; min-height: var(--control-height); }
+.scope { font-size: var(--fs-body); display: flex; align-items: center; gap: 8px; }
+.scope-note { color: var(--muted); font-size: var(--fs-small); margin: 0; }
+select, input {
+  height: var(--control-height); border: 1px solid var(--control);
+  border-radius: var(--radius-control); background: #fff; color: var(--text);
+  font: inherit; padding: 0 10px;
+}
+
+/* Franja de indicadores: un contenedor dividido por reglas. */
+.kpis {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-card); margin-top: 16px;
+}
+.kpi { padding: 12px 20px; }
+.kpi + .kpi { border-left: 1px solid var(--rule); }
+.k-label { display: block; font-size: var(--fs-body); color: var(--muted); }
+.k-val { display: block; font-size: var(--fs-kpi); font-weight: 500; margin-top: 2px; white-space: nowrap; }
+
+/* Rejilla principal + riel. */
+.grid { display: grid; grid-template-columns: 1fr 384px; gap: 24px; margin-top: 16px; padding-bottom: 64px; }
+.main-col { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-card); padding: 20px;
+}
+.card h2 { font-size: var(--fs-section); font-weight: 600; margin: 0; }
+.cap { color: var(--muted); font-size: var(--fs-small); margin: 2px 0 12px; }
+.rail-h { font-size: var(--fs-section); font-weight: 600; margin: 16px 0 8px; }
+.rail-h:first-child { margin-top: 0; }
+.rail .card { margin: 0; }
+
+/* Filas-urna: el fondo de la fila es la barra, proporcional al mayor. */
+.filas-urna { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.filas-urna li {
+  position: relative; height: 44px; border-radius: 8px; overflow: hidden;
+  display: flex; align-items: center; gap: 12px; padding: 0 12px;
+}
+.filas-urna .relleno { position: absolute; inset: 0; width: 56px; background: var(--chart-1); opacity: 0.08; }
+.filas-urna li.lider .relleno { background: var(--chart-3); opacity: 0.16; }
+.filas-urna .nombre { position: relative; font-weight: 500; }
+.filas-urna .votos { position: relative; margin-left: auto; text-align: right; }
+.filas-urna li.lider .votos { color: var(--chart-3); }
+
+/* Correcciones: líneas de libro, acta en mono, motivo en pastilla pálida. */
+.corr { border-top: 1px solid var(--rule); padding: 8px 0; font-size: var(--fs-body); }
+.corr:first-child { border-top: none; padding-top: 0; }
+.corr .acta { font-family: var(--mono); font-size: 13px; }
+.corr .motivo {
+  display: inline-block; height: 20px; line-height: 20px; padding: 0 8px;
+  border-radius: 999px; font-size: var(--fs-small); font-weight: 500;
+  background: var(--pill-warning-bg); color: var(--pill-warning-ink);
+  border: 1px solid #fde68a; margin-left: 8px;
+}
+.corr time { color: var(--faint); font-size: var(--fs-small); margin-left: 8px; }
+.vacio { color: var(--muted); margin: 0; }
+.dash { color: var(--faint); }
+
+/* Mesa y conexión. */
+.mesa-form label { display: block; font-size: var(--fs-body); font-weight: 500; margin-bottom: 8px; }
+.mesa-join { display: flex; gap: 8px; }
+.mesa-join input { width: 120px; }
+button {
+  height: var(--control-height); padding: 0 16px; border: none;
+  border-radius: var(--radius-control); background: var(--primary); color: #fff;
+  font: inherit; cursor: pointer;
+}
+.mesa-detalle { margin-top: 12px; font-size: var(--fs-body); }
+.mesa-detalle dl { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; margin: 0; }
+.mesa-detalle dt { color: var(--muted); }
+.mesa-detalle dd { margin: 0; text-align: right; }
+.notice {
+  background: var(--pill-warning-bg); border: 1px solid #fde68a;
+  color: var(--pill-warning-ink); border-radius: var(--radius-control);
+  padding: 8px 12px; font-size: var(--fs-small); margin: 0 0 12px;
+}
+.meta { color: var(--muted); font-size: var(--fs-small); margin: 0; }
+.error { color: var(--pill-negative-ink); }
+button.texto { background: none; color: var(--text); text-decoration: underline; padding: 0; height: auto; }
+
+/* Carga: barras grises al tamaño final, sin brillo. */
+.carga .barra { height: 44px; border-radius: 8px; background: var(--raised); }
+
+/* Teléfono: el riel baja, los indicadores en 2 columnas, la barra se pliega. */
+@media (max-width: 1100px) {
+  .col { padding: 0 16px; }
+  .grid { grid-template-columns: 1fr; }
+  .kpis { grid-template-columns: 1fr 1fr; }
+  .kpi:nth-child(3) { border-left: none; border-top: 1px solid var(--rule); }
+  .kpi:nth-child(4) { border-top: 1px solid var(--rule); }
+  .crumb { display: none; }
+  #instancia { display: none; }
+}

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Preconteo · Resultados en vivo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/app/estilos.css" />
+  </head>
+  <body>
+    <header class="topbar" data-ui>
+      <div class="col topbar-in">
+        <span class="marca" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+            <rect x="3" y="7" width="14" height="10" rx="1.5" stroke="#0a0a0a" stroke-width="1.5" />
+            <path d="M7 7l3-4 3 4" stroke="#0a0a0a" stroke-width="1.5" stroke-linejoin="round" />
+            <path d="M10 3v4" stroke="#1d5fbf" stroke-width="1.5" stroke-linecap="round" />
+          </svg>
+        </span>
+        <strong class="wordmark">Preconteo</strong>
+        <span class="crumb" id="crumb">Departamento</span>
+        <span class="top-right">
+          <span id="estado-conexion" class="pill neutral" role="status">conectando…</span>
+          <span id="instancia" class="mono faint" title="Instancia del backend que sirve esta conexión">instancia …</span>
+        </span>
+      </div>
+    </header>
+
+    <main class="col">
+      <div class="title-row">
+        <div>
+          <h1>Resultados del preconteo</h1>
+          <p class="sub" id="frescura">Informe rápido, no oficial. Esperando datos…</p>
+        </div>
+      </div>
+
+      <div class="scope-row">
+        <label class="scope">Ámbito
+          <select id="topic">
+            <option value="dep">Departamento</option>
+            <option value="mun:11" selected>Municipio 11</option>
+            <option value="puesto:176">Puesto 176</option>
+          </select>
+        </label>
+        <p class="scope-note">Dos conexiones en vivo: departamento y ámbito elegido.</p>
+      </div>
+
+      <section class="kpis" aria-label="Avance del preconteo">
+        <div class="kpi"><span class="k-label">Mesas informadas</span><span class="k-val mono num" id="k-mesas">…</span></div>
+        <div class="kpi"><span class="k-label">Avance</span><span class="k-val mono num" id="k-avance">…</span></div>
+        <div class="kpi"><span class="k-label">Sufragantes</span><span class="k-val mono num" id="k-suf">…</span></div>
+        <div class="kpi"><span class="k-label">Actualizado</span><span class="k-val mono num" id="k-hora">…</span></div>
+      </section>
+
+      <div class="grid">
+        <div class="main-col">
+          <section class="card" aria-label="Votos por candidatura">
+            <h2>Votos por candidatura</h2>
+            <p class="cap">Acumulado del ámbito · valores absolutos en cada envío</p>
+            <ol id="ranking" class="filas-urna"></ol>
+          </section>
+        </div>
+        <aside class="rail">
+          <h2 class="rail-h">Correcciones</h2>
+          <section class="card" aria-label="Correcciones explicadas">
+            <div id="correcciones"></div>
+          </section>
+          <h2 class="rail-h">Mesa</h2>
+          <section class="card" aria-label="Detalle de mesa">
+            <form id="mesa-form" class="mesa-form">
+              <label for="mesa-id">Número de mesa</label>
+              <span class="mesa-join">
+                <input id="mesa-id" class="mono" inputmode="numeric" placeholder="4201" />
+                <button type="submit">Ver</button>
+              </span>
+            </form>
+            <div id="mesa-detalle" class="mesa-detalle"><span class="dash">…</span></div>
+          </section>
+          <h2 class="rail-h">Conexión</h2>
+          <section class="card" aria-label="Estado de la conexión">
+            <p id="pausa" class="notice" hidden>Datos en pausa, última actualización <span id="pausa-hora" class="mono num">…</span></p>
+            <p class="meta">Reconexión con retroceso exponencial y reanudación desde el último mensaje. <span id="inp" class="mono num">INP …</span></p>
+          </section>
+        </aside>
+      </div>
+    </main>
+    <script type="module" src="/src/app/main.ts"></script>
+  </body>
+</html>
