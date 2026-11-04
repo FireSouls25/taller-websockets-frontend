@@ -1,5 +1,9 @@
 // Domain: verification console (screen 3, console WS).
 // Wire format (API contract) uses Spanish keys and must not be renamed.
+//
+// `rev` is a "ms-seq" text (Redis stream id), NOT a consecutive counter:
+// gaps cannot be detected with it. Drop an event whose rev is at or below
+// the last snapshot rev, comparing ms numerically, then seq.
 
 export interface ReviewQueueItem {
   code: string;
@@ -28,11 +32,12 @@ export interface CaseDetail {
 export interface MyCase {
   record: string;
   detail: CaseDetail;
+  since?: number;
 }
 
 export interface ConsoleSnapshot {
   kind: "snapshot";
-  rev: number;
+  rev: string;
   queueTotal: number;
   queue: ReviewQueueItem[];
   cases: AssignedCase[];
@@ -43,7 +48,7 @@ export type ConsoleEventType = "opened" | "taken" | "released" | "expired" | "wi
 
 export interface ConsoleEvent {
   kind: "event";
-  rev: number;
+  rev: string;
   type: ConsoleEventType;
   record: string;
   auditor?: string;
@@ -59,12 +64,23 @@ export type ConsoleErrorCode =
   | "VERSION_CAMBIO"
   | "SIN_CASO"
   | "DATOS_INVALIDOS"
+  | "NO_AUTORIZADO"
   | "LIMITE_TASA"
   | "SERVICIO_NO_DISPONIBLE";
 
+/** `resuelto` outcome: CONTADA or RECHAZADA. */
+export type ResolvedOutcome = "CONTADA" | "RECHAZADA";
+
+export interface PresenceInfo {
+  instance: string;
+  role: string;
+  connectedSince: number;
+  lastActivity: number;
+}
+
 export interface AuditorPresence {
   auditor: string;
-  info: string;
+  info: PresenceInfo;
   record?: string;
   since?: number;
 }
@@ -97,16 +113,23 @@ interface CaseDetailWire {
 
 interface ConsoleSnapshotWire {
   t: "snapshot";
-  rev: number;
+  rev: string;
   total_cola: number;
   cola: ReviewQueueItemWire[];
   casos: AssignedCaseWire[];
-  mi_caso?: { acta: string; detalle: CaseDetailWire };
+  mi_caso?: { acta: string; desde: number; detalle: CaseDetailWire };
+}
+
+interface PresenceInfoWire {
+  instancia: string;
+  rol: string;
+  conectado_desde: number;
+  ultima_actividad: number;
 }
 
 interface AuditorPresenceWire {
   auditor: string;
-  info: string;
+  info: PresenceInfoWire;
   acta?: string;
   desde?: number;
 }
@@ -125,6 +148,19 @@ const lostReasons: Record<string, LostCaseReason> = {
   EXPIRADO: "expired",
   NUEVA_VERSION: "new-version",
 };
+
+/** Compares "ms-seq" revs numerically: ms first, then seq. */
+export function compareRev(a: string, b: string): number {
+  const [aMs = "0", aSeq = "0"] = a.split("-");
+  const [bMs = "0", bSeq = "0"] = b.split("-");
+  if (Number(aMs) !== Number(bMs)) return Number(aMs) - Number(bMs);
+  return Number(aSeq) - Number(bSeq);
+}
+
+/** Drop events at or below the last snapshot rev. */
+export function isStaleEvent(snapshotRev: string, eventRev: string): boolean {
+  return compareRev(eventRev, snapshotRev) <= 0;
+}
 
 export function fromWireQueueItem(w: ReviewQueueItemWire): ReviewQueueItem {
   return {
@@ -154,6 +190,7 @@ export function fromWireConsoleSnapshot(w: ConsoleSnapshotWire): ConsoleSnapshot
       ? {
           myCase: {
             record: w.mi_caso.acta,
+            since: w.mi_caso.desde,
             detail: fromWireCaseDetail(w.mi_caso.detalle),
           },
         }
@@ -176,15 +213,15 @@ export function fromWireLostReason(m: string): LostCaseReason {
 export function fromWirePresence(w: AuditorPresenceWire): AuditorPresence {
   return {
     auditor: w.auditor,
-    info: w.info,
+    info: {
+      instance: w.info.instancia,
+      role: w.info.rol,
+      connectedSince: w.info.conectado_desde,
+      lastActivity: w.info.ultima_actividad,
+    },
     ...(w.acta !== undefined ? { record: w.acta } : {}),
     ...(w.desde !== undefined ? { since: w.desde } : {}),
   };
-}
-
-/** Does the incoming rev require a full snapshot? */
-export function needsSync(lastRev: number, incomingRev: number): boolean {
-  return incomingRev > lastRev + 1;
 }
 
 /** NO_DISPONIBLE is a normal race between auditors, not a failure. */

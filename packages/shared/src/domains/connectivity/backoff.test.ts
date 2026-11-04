@@ -3,8 +3,8 @@ import { backoffDelay, nextBackoff, resetBackoff, BACKOFF_MAX_MS } from "./backo
 
 describe("backoff with full jitter (RF-10)", () => {
   it("grows exponentially and caps at 30s", () => {
-    expect(backoffDelay(0, () => 1)).toBe(1000);
-    expect(backoffDelay(1, () => 1)).toBe(2000);
+    expect(backoffDelay(0, () => 1)).toBe(5000);
+    expect(backoffDelay(1, () => 1)).toBe(10000);
     expect(backoffDelay(10, () => 1)).toBe(BACKOFF_MAX_MS);
     expect(backoffDelay(0, () => 0)).toBe(0);
   });

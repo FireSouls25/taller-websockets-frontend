@@ -1,7 +1,8 @@
-// Exponential backoff with full jitter (RF-10).
-// wait = random(0, min(30000, 1000 * 2 ** attempt)). Reset attempt on any event.
+// Exponential backoff with full jitter (RF-10, contract §Reconnect).
+// wait = random(0, min(30000, 5000 * 2 ** attempt)). The 5s base spreads the
+// 50,000 clients of a fallen instance. Reset attempt on any event.
 
-export const BACKOFF_BASE_MS = 1000;
+export const BACKOFF_BASE_MS = 5000;
 export const BACKOFF_MAX_MS = 30000;
 
 export function backoffDelay(attempt: number, random: () => number = Math.random): number {
