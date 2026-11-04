@@ -82,7 +82,7 @@ interface InstanceMetricsWire {
   auditoria_guardados: number;
 }
 
-interface OperationMetricsWire {
+export interface OperationMetricsWire {
   instancias: InstanceMetricsWire[];
   global: {
     instancias_vivas: number;

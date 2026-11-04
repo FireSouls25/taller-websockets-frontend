@@ -26,13 +26,13 @@ export interface TableDetail {
 
 // --- wire format (contract) ---
 
-interface TerritorialCatalogWire {
+export interface TerritorialCatalogWire {
   total_mesas: number;
   total_puestos: number;
   municipios: Array<{ id: number; puestos: number[] }>;
 }
 
-interface TableDetailWire {
+export interface TableDetailWire {
   mesa: number;
   informada: boolean;
   sufragantes: number;

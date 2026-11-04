@@ -1,98 +1,128 @@
 import { useEffect, useState, type JSX } from "react";
-import { httpGet, obtenerInstancia, type OpsMetrics } from "@preconteo/shared";
+import { fetchInstance, fromWireMetrics, httpGet, type OperationMetrics, type OperationMetricsWire } from "@preconteo/shared";
+import { es } from "../i18n/es.js";
 
 const fmtInt = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 });
 
 export function App(): JSX.Element {
-  const [m, setM] = useState<OpsMetrics | null>(null);
-  const [instancia, setInstancia] = useState("…");
-  const [error, setError] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<OperationMetrics | null>(null);
+  const [instance, setInstance] = useState("…");
+  const [degraded, setDegraded] = useState(false);
 
   useEffect(() => {
-    void obtenerInstancia().then(setInstancia);
-    let viva = true;
-    const pedir = (): void => {
-      void httpGet<OpsMetrics>("/api/ops/metrics")
+    void fetchInstance().then(setInstance);
+    let alive = true;
+    const poll = (): void => {
+      void httpGet<OperationMetricsWire>("/api/ops/metrics")
         .then((r) => {
-          if (!viva) return;
-          if ("notModified" in r) return;
-          setM(r.data);
-          setError(null);
+          if (!alive || "notModified" in r) return;
+          setMetrics(fromWireMetrics(r.data));
+          setDegraded(false);
         })
-        .catch(() => {
-          if (viva) setError("Sin métricas: reintentando cada 2 s.");
+        .catch((e: unknown) => {
+          // 503 with { global: null, instancias: [this one] } while Redis is down.
+          const data = (e as { data?: OperationMetricsWire }).data;
+          if (!alive || !data) return;
+          try {
+            setMetrics(fromWireMetrics(data));
+            setDegraded(true);
+          } catch {
+            /* unparsable: keep previous frame */
+          }
         });
     };
-    pedir();
-    const t = setInterval(pedir, 2000); // polling cada 2 s (RT-7)
+    poll();
+    const t = setInterval(poll, 2000); // polling every 2 s (RT-7)
     return () => {
-      viva = false;
+      alive = false;
       clearInterval(t);
     };
   }, []);
 
-  const g = m?.global;
-  const ahorro = g && g.cifraIngenua > 0 ? (1 - g.mensajesEmitidosTotal / g.cifraIngenua) * 100 : 0;
+  const g = metrics?.global ?? null;
 
   return (
     <>
       <header className="topbar">
-        <strong>Operación</strong>
-        <span className={`pill ${error ? "warn" : "live"}`}>{error ? "reintentando" : "en vivo · 2 s"}</span>
-        <span className="meta mono">instancia {instancia}</span>
+        <strong>{es.brand}</strong>
+        <span className={`pill ${degraded ? "warn" : "live"}`}>
+          {degraded ? es.retrying : es.live}
+        </span>
+        <span className="meta mono">instancia {instance}</span>
       </header>
       <main className="col">
-        <h1>Tablero de operación</h1>
-        <p className="sub">Prueba de carga y pico de la jornada. {error ?? "Métricas cada 2 segundos."}</p>
+        <h1>{es.title}</h1>
+        <p className="sub">{es.sub(degraded ? es.degraded : null)}</p>
         <div className="grid">
-          <section className="card" aria-label="Global">
-            <h2>Global</h2>
+          <section className="card" aria-label={es.global.title}>
+            <h2>{es.global.title}</h2>
             <dl className="kv">
-              <span><dt>Conexiones totales</dt><dd className="mono">{g ? fmtInt.format(g.conexionesTotales) : "…"}</dd></span>
-              <span><dt>Actas por minuto</dt><dd className="mono">{g ? fmtInt.format(g.actasPorMinuto) : "…"}</dd></span>
-              <span><dt>Retraso publicación</dt><dd className="mono">{g ? `${fmtInt.format(g.retrasoPublicacion)} ms` : "…"}</dd></span>
+              <span><dt>{es.global.liveInstances}</dt><dd className="mono">{g ? fmtInt.format(g.liveInstances) : "…"}</dd></span>
+              <span><dt>{es.global.publicConnections}</dt><dd className="mono">{g ? fmtInt.format(g.publicConnections) : "…"}</dd></span>
+              <span><dt>{es.global.recordsPerMinute}</dt><dd className="mono">{g ? fmtInt.format(g.recordsPerMinute) : "…"}</dd></span>
+              <span><dt>{es.global.publishLag}</dt><dd className="mono">{g ? es.ms(g.publishLagMs) : "…"}</dd></span>
+              <span><dt>{es.global.emitted}</dt><dd className="mono">{g ? fmtInt.format(g.totalEmitted) : "…"}</dd></span>
+              <span><dt>{es.global.naive}</dt><dd className="mono">{g ? fmtInt.format(g.naiveEstimate) : "…"}</dd></span>
+              <span><dt>{es.global.reduction}</dt><dd className="mono">{g ? `×${fmtInt.format(g.reductionFactor)}` : "…"}</dd></span>
             </dl>
           </section>
-          <section className="card" aria-label="Agregación del fan-out">
-            <h2>Mensajes emitidos frente a cifra ingenua</h2>
-            <p className="cap">Un mensaje por acta y por cliente serían {g ? fmtInt.format(g.cifraIngenua) : "…"} envíos.</p>
-            <dl className="kv">
-              <span><dt>Emitidos</dt><dd className="mono">{g ? fmtInt.format(g.mensajesEmitidosTotal) : "…"}</dd></span>
-              <span><dt>Ahorro por agregación</dt><dd className="mono">{g ? `${ahorro.toFixed(1)} %` : "…"}</dd></span>
-            </dl>
+          <section className="card" aria-label={es.backpressure.title}>
+            <h2>{es.backpressure.title}</h2>
+            {(metrics?.instances.length ?? 0) === 0 && <p className="meta">…</p>}
+            {(metrics?.instances ?? []).map((i) => (
+              <div className="row" key={i.id}>
+                <span className="mono">{i.id}</span>{" "}
+                <span className={`pill ${i.backpressure.lagging > 0 ? "warn" : "live"}`}>
+                  {i.backpressure.lagging} {es.backpressure.lagging}
+                </span>{" "}
+                <span className="pill neutral">{i.backpressure.ejected} {es.backpressure.ejected}</span>{" "}
+                <span className="pill neutral">{i.backpressure.rejectedIntake} {es.backpressure.rejectedIntake}</span>
+                <br />
+                <span className={`pill ${i.redisHealthy ? "live" : "warn"}`}>
+                  {i.redisHealthy ? es.backpressure.redisOk : es.backpressure.redisDown}
+                </span>{" "}
+                <span className={`pill ${i.postgresOk ? "live" : "warn"}`}>
+                  {i.postgresOk ? es.backpressure.postgresOk : es.backpressure.postgresDown}
+                </span>
+              </div>
+            ))}
           </section>
         </div>
-        <section className="card" aria-label="Por instancia">
-          <h2>Por instancia ({m?.instancias.length ?? 0})</h2>
-          {(m?.instancias.length ?? 0) === 0 && <p className="meta">Esperando métricas…</p>}
+        <section className="card" aria-label={es.instances.title(metrics?.instances.length ?? 0)}>
+          <h2>{es.instances.title(metrics?.instances.length ?? 0)}</h2>
+          {(metrics?.instances.length ?? 0) === 0 && <p className="meta">{es.instances.waiting}</p>}
           <table>
             <thead>
               <tr>
-                <th scope="col">Instancia</th>
-                <th scope="col" className="num">Púb.</th>
-                <th scope="col" className="num">Jurados</th>
-                <th scope="col" className="num">Consolas</th>
-                <th scope="col" className="num">Event loop p50</th>
-                <th scope="col" className="num">p99</th>
-                <th scope="col" className="num">máx</th>
-                <th scope="col" className="num">Mem/conexión</th>
-                <th scope="col" className="num">Msgs/s</th>
-                <th scope="col">Redis</th>
+                <th scope="col">{es.instances.instance}</th>
+                <th scope="col" className="num">{es.instances.connections}</th>
+                <th scope="col" className="num">{es.instances.eventLoop}</th>
+                <th scope="col" className="num">{es.instances.memory}</th>
+                <th scope="col" className="num">{es.instances.messages}</th>
+                <th scope="col" className="num">{es.instances.records}</th>
+                <th scope="col" className="num">{es.instances.audits}</th>
               </tr>
             </thead>
             <tbody>
-              {(m?.instancias ?? []).map((i) => (
+              {(metrics?.instances ?? []).map((i) => (
                 <tr key={i.id}>
                   <th scope="row" className="mono">{i.id}</th>
-                  <td className="num mono">{fmtInt.format(i.conexionesPublicas)}</td>
-                  <td className="num mono">{fmtInt.format(i.conexionesJurados)}</td>
-                  <td className="num mono">{fmtInt.format(i.conexionesConsolas)}</td>
-                  <td className="num mono">{fmtInt.format(i.eventLoopP50)} ms</td>
-                  <td className="num mono">{fmtInt.format(i.eventLoopP99)} ms</td>
-                  <td className="num mono">{fmtInt.format(i.eventLoopMax)} ms</td>
-                  <td className="num mono">{fmtInt.format(i.memoriaPorConexion)} KB</td>
-                  <td className="num mono">{fmtInt.format(i.mensajesPorSegundo)}</td>
-                  <td><span className={`pill ${i.redis === "ok" ? "live" : "warn"}`}>{i.redis}</span></td>
+                  <td className="num mono">
+                    {fmtInt.format(i.connections.public)}/{fmtInt.format(i.connections.jurors)}/{fmtInt.format(i.connections.consoles)}
+                  </td>
+                  <td className="num mono">
+                    {i.eventLoopMs.p50}/{i.eventLoopMs.p99}/{i.eventLoopMs.max} ms
+                  </td>
+                  <td className="num mono">
+                    {i.memory.rssMb}/{i.memory.heapMb}/{i.memory.kbPerConnection} KB
+                  </td>
+                  <td className="num mono">
+                    {fmtInt.format(i.messages.emitted)}/{fmtInt.format(i.messages.perSecond)}
+                  </td>
+                  <td className="num mono">
+                    {fmtInt.format(i.recordsPerMinute)} · {i.publishLagMs} ms
+                  </td>
+                  <td className="num mono">{fmtInt.format(i.savedAudits)}</td>
                 </tr>
               ))}
             </tbody>
