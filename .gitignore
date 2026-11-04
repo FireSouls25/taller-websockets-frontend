@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.local
+.env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+
+# Repos y datos ajenos al frontend
+taller-websockets-backend/
+lancedb/
+.taste-skill/
